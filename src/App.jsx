@@ -3,7 +3,7 @@
 
 import React from "react";
 import Left from "./home/Leftpart/Left";
-import Right from "./home/Rightpart/Right";
+import Right from "./home/rightpart/Right";
 import Signup from "./components/Signup";
 import Login from "./components/Login";
 import { useAuth } from "./context/AuthProvider";
