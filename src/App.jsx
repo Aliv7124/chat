@@ -1,8 +1,6 @@
 
-
-
 import React from "react";
-import Left from "./home/Leftpart/Left";
+import Left from "./home/leftpart/left";
 import Right from "./home/rightpart/Right";
 import Signup from "./components/Signup";
 import Login from "./components/Login";

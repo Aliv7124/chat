@@ -34,7 +34,7 @@ const Login = () => {
           <input
             type="email"
             placeholder="Email"
-            className="w-full p-3 rounded-lg bg-gray-700 text-white outline-none"
+            className="w-full p-3 rounded-lg bg-gray-700 text-black outline-none"
             {...register("email", { required: true })}
           />
           {errors.email && <span className="text-red-500 text-sm">Email required</span>}
@@ -42,7 +42,7 @@ const Login = () => {
           <input
             type="password"
             placeholder="Password"
-            className="w-full p-3 rounded-lg bg-gray-700 text-white outline-none"
+            className="w-full p-3 rounded-lg bg-gray-700 text-black outline-none"
             {...register("password", { required: true })}
           />
           {errors.password && <span className="text-red-500 text-sm">Password required</span>}
