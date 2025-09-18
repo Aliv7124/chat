@@ -9,26 +9,24 @@ const Login = () => {
   const [authUser, setAuthUser] = useAuth();
   const { register, handleSubmit, formState: { errors } } = useForm();
 
-const onSubmit = async (data) => {
-  try {
-    const res = await api.post("/users/login", {
-      email: data.email,
-      password: data.password,
-    });
+  const onSubmit = async (data) => {
+    try {
+      const res = await api.post("/users/login", {
+        email: data.email,
+        password: data.password,
+      });
 
-    // Save token and user in localStorage
-  localStorage.setItem("auth-token", res.data.token);  // JWT token
-localStorage.setItem("user", JSON.stringify(res.data.user)); // user info
-setAuthUser(res.data.user);
+      // store JWT and user info
+      localStorage.setItem("auth-token", res.data.token);
+      localStorage.setItem("user", JSON.stringify(res.data.user));
+      setAuthUser(res.data.user);
 
-    toast.success("Login successful");
-  } catch (error) {
-    toast.error(error.response?.data?.msg || "Invalid Email or Password");
-    console.log("Login error:", error.response?.data || error.message);
-  }
-};
-
-
+      toast.success("Login successful");
+    } catch (error) {
+      toast.error(error.response?.data?.msg || "Invalid Email or Password");
+      console.log("Login error:", error.response?.data || error.message);
+    }
+  };
 
   return (
      <div className="min-h-screen flex items-center justify-center bg-gradient-to-r from-blue-900 to-slate-900">
