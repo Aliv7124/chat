@@ -1,12 +1,13 @@
 import axios from "axios";
-import Cookies from "js-cookie";
+
+const token = localStorage.getItem("jwt"); // read stored JWT
 
 const api = axios.create({
-  baseURL: "https://chat-backend-jpy3.onrender.com/api", // ✅ deployed backend
+  baseURL: "https://chat-backend-jpy3.onrender.com/api", // deployed backend
   headers: {
-    Authorization: `Bearer ${Cookies.get("jwt") || ""}`, // optional chaining
+    Authorization: `Bearer ${token || ""}`, // send JWT
   },
-  withCredentials: true, // keeps cookies if your backend uses them
+  withCredentials: true,
 });
 
 export default api;
