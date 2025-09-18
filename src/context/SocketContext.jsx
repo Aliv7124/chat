@@ -9,18 +9,17 @@ export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [authUser] = useAuth();
+useEffect(() => {
+  if (authUser?._id) {
+    const socketInstance = io("http://localhost:4002", {
+      query: { userId: authUser._id }, // ✅ fixed
+    });
+    setSocket(socketInstance);
 
-  useEffect(() => {
-    if (authUser) {
-      const socketInstance = io("http://localhost:4002", {
-        query: { userId: authUser.user._id },
-      });
-      setSocket(socketInstance);
-
-      socketInstance.on("getOnlineUsers", (users) => setOnlineUsers(users));
-      return () => socketInstance.close();
-    }
-  }, [authUser]);
+    socketInstance.on("getOnlineUsers", (users) => setOnlineUsers(users));
+    return () => socketInstance.close();
+  }
+}, [authUser]);
 
   return (
     <socketContext.Provider value={{ socket, onlineUsers }}>

@@ -68,7 +68,7 @@ export default Right;
 const NoChatSelected = ({ authUser }) => {
   return (
     <div className="d-flex flex-column flex-grow-1 justify-content-center align-items-center text-center px-3" style={{ height: "100%" }}>
-      <h1 className="text-white mb-2">Welcome {authUser.user.username}</h1>
+      <h1 className="text-white mb-2">Welcome {authUser?.username || "User"}</h1>
       <p className="text-gray-300">No chat selected, please start a conversation from your contacts.</p>
     </div>
   );

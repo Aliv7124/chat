@@ -11,20 +11,24 @@ const Login = () => {
 
   
   const onSubmit = async (data) => {
-    try {
-      const res = await api.post("/users/login", {
-        email: data.email,
-        password: data.password,
-      });
+  try {
+    const res = await api.post("/users/login", {
+      email: data.email,
+      password: data.password,
+    });
 
-      localStorage.setItem("ChatApp", JSON.stringify(res.data));
-      setAuthUser(res.data);
-      toast.success("Login successful");
-    } catch (error) {
-      toast.error(error.response?.data?.msg || "Invalid Email or Password");
-      console.log("Login error:", error.response?.data || error.message);
-    }
+    // Assuming backend returns: { token: "jwt_token_here", user: {...} }
+    localStorage.setItem("jwt", res.data.token);        // store JWT token
+    localStorage.setItem("user", JSON.stringify(res.data.user)); // store user info
+    setAuthUser(res.data.user);                          // update context
+
+    toast.success("Login successful");
+  } catch (error) {
+    toast.error(error.response?.data?.msg || "Invalid Email or Password");
+    console.log("Login error:", error.response?.data || error.message);
   }
+};
+
 
   return (
      <div className="min-h-screen flex items-center justify-center bg-gradient-to-r from-blue-900 to-slate-900">
