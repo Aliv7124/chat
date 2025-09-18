@@ -9,18 +9,18 @@ const Login = () => {
   const [authUser, setAuthUser] = useAuth();
   const { register, handleSubmit, formState: { errors } } = useForm();
 
-  
-  const onSubmit = async (data) => {
+const onSubmit = async (data) => {
   try {
     const res = await api.post("/users/login", {
       email: data.email,
       password: data.password,
     });
 
-    // Assuming backend returns: { token: "jwt_token_here", user: {...} }
-    localStorage.setItem("jwt", res.data.token);        // store JWT token
-    localStorage.setItem("user", JSON.stringify(res.data.user)); // store user info
-    setAuthUser(res.data.user);                          // update context
+    // Save token and user in localStorage
+    localStorage.setItem("jwt", res.data.token);
+    localStorage.setItem("user", JSON.stringify(res.data.user));
+
+    setAuthUser(res.data.user);
 
     toast.success("Login successful");
   } catch (error) {
@@ -28,6 +28,7 @@ const Login = () => {
     console.log("Login error:", error.response?.data || error.message);
   }
 };
+
 
 
   return (
