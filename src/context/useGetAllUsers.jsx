@@ -9,13 +9,10 @@ function useGetAllUsers() {
     const getUsers = async () => {
       setLoading(true);
       try {
-        const token = localStorage.getItem("jwt");
-        const currentUser = JSON.parse(localStorage.getItem("user"));
+        const currentUser = JSON.parse(localStorage.getItem("user")); // current logged-in user
 
-        const response = await api.get("/users/allusers", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
+        const response = await api.get("/users/allusers");
+        // exclude current user
         const filteredUsers = response.data.filter(
           (user) => user._id !== currentUser?._id
         );

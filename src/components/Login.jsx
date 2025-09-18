@@ -17,10 +17,9 @@ const onSubmit = async (data) => {
     });
 
     // Save token and user in localStorage
-    localStorage.setItem("jwt", res.data.token);
-    localStorage.setItem("user", JSON.stringify(res.data.user));
-
-    setAuthUser(res.data.user);
+  localStorage.setItem("auth-token", res.data.token);  // JWT token
+localStorage.setItem("user", JSON.stringify(res.data.user)); // user info
+setAuthUser(res.data.user);
 
     toast.success("Login successful");
   } catch (error) {

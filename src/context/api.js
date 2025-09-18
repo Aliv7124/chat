@@ -5,12 +5,9 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Always attach latest JWT
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("jwt");
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  const token = localStorage.getItem("auth-token");  // use auth-token here
+  if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
