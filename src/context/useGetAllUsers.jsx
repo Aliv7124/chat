@@ -11,14 +11,14 @@ function useGetAllUsers() {
       try {
         const currentUser = JSON.parse(localStorage.getItem("user"));
         if (!currentUser) {
-          console.log("No logged-in user found");
           setLoading(false);
           return;
         }
 
+        // ✅ Cookies automatically sent; backend validates JWT
         const response = await api.get("/users/allusers");
 
-        // exclude current user
+        // Exclude the current logged-in user
         const filteredUsers = response.data.filter(
           (user) => user._id !== currentUser._id
         );
