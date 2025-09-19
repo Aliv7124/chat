@@ -1,13 +1,15 @@
-import React, { createContext, useContext, useState } from "react";
-import Cookies from "js-cookie";
+import React, { createContext, useContext, useState, useEffect } from "react";
 
 export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-  const initialUserState = Cookies.get("jwt") || localStorage.getItem("ChatApp");
-  const [authUser, setAuthUser] = useState(
-    initialUserState ? JSON.parse(initialUserState) : undefined
-  );
+  const [authUser, setAuthUser] = useState(null);
+
+  useEffect(() => {
+    // restore user info from localStorage on refresh
+    const user = localStorage.getItem("user");
+    if (user) setAuthUser(JSON.parse(user));
+  }, []);
 
   return (
     <AuthContext.Provider value={[authUser, setAuthUser]}>
