@@ -15,8 +15,8 @@ function useGetAllUsers() {
           return;
         }
 
-        // ✅ Cookies automatically sent; backend validates JWT
-        const response = await api.get("/users/allusers");
+        // ✅ Send credentials (cookies) automatically
+        const response = await api.get("/users/allusers", { withCredentials: true });
 
         // Exclude the current logged-in user
         const filteredUsers = response.data.filter(
@@ -25,7 +25,10 @@ function useGetAllUsers() {
 
         setAllUsers(filteredUsers);
       } catch (error) {
-        console.log("Error in useGetAllUsers:", error.response?.data || error);
+        console.log(
+          "Error in useGetAllUsers:",
+          error.response?.data || error.message || error
+        );
       } finally {
         setLoading(false);
       }

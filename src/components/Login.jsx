@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthProvider";
 import api from "../context/api";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
-
+/*
 const Login = () => {
   const [authUser, setAuthUser] = useAuth();
   const { register, handleSubmit, formState: { errors } } = useForm();
@@ -25,6 +25,34 @@ const onSubmit = async (data) => {
     console.log("Login error:", error.response?.data || error.message);
   }
 };
+*/
+const Login = () => {
+  const [authUser, setAuthUser] = useAuth();
+  const navigate = useNavigate();
+  const { register, handleSubmit, formState: { errors } } = useForm();
+
+  const onSubmit = async (data) => {
+    try {
+      const res = await api.post(
+        "/users/login",
+        {
+          email: data.email,
+          password: data.password,
+        },
+        { withCredentials: true } // ✅ Important for cookie-based auth
+      );
+
+      // Save only user info; JWT comes automatically via cookie
+      localStorage.setItem("user", JSON.stringify(res.data.user));
+      setAuthUser(res.data.user);
+
+      toast.success("Login successful");
+      navigate("/"); // go to home after login
+    } catch (error) {
+      toast.error(error.response?.data?.msg || "Invalid Email or Password");
+      console.log("Login error:", error.response?.data || error.message);
+    }
+  };
 
 
   return (

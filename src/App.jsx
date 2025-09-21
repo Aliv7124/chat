@@ -6,12 +6,13 @@ import Signup from "./components/Signup";
 import Login from "./components/Login";
 import { useAuth } from "./context/AuthProvider";
 import { Toaster } from "react-hot-toast";
+import useConversation from "./zustand/useConversation";
 
 import { Navigate, Route, Routes } from "react-router-dom";
 
 function App() {
   const [authUser] = useAuth();
-
+ const { selectedConversation, setSelectedConversation } = useConversation();
   return (
     <div
       className="d-flex flex-column"
