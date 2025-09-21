@@ -38,14 +38,33 @@ function App() {
                   </div>
                 </div>
 
-                {/* Mobile layout */}
-                <div className="d-lg-none d-flex flex-column flex-grow-1" style={{ height: "100%" }}>
-                  <div className="flex-shrink-0">
-                    <Left />
-                  </div>
-                  <div className="flex-grow-1" style={{ overflowY: "auto" }}>
-                    <Right />
-                  </div>
+                 {/* ✅ Mobile layout */}
+                <div
+                  className="d-lg-none d-flex flex-column flex-grow-1"
+                  style={{ height: "100%" }}
+                >
+                  {selectedConversation ? (
+                    // Chat window
+                    <div className="flex-grow-1 d-flex flex-column">
+                      <div className="flex-shrink-0 bg-primary text-white p-2 d-flex align-items-center">
+                        <button
+                          className="btn btn-light btn-sm me-2"
+                          onClick={() => setSelectedConversation(null)} // go back
+                        >
+                          ←
+                        </button>
+                        <span>{selectedConversation.username}</span>
+                      </div>
+                      <div className="flex-grow-1 overflow-auto">
+                        <Right />
+                      </div>
+                    </div>
+                  ) : (
+                    // Friends list
+                    <div className="flex-grow-1">
+                      <Left />
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
