@@ -11,25 +11,28 @@ const useGetMessage = () => {
     const getMessages = async () => {
       if (!selectedConversation) return;
 
-      const existing = messages[selectedConversation._id];
-      if (existing) {
-        setLocalMessages(existing);
-        return; // already cached, skip fetching
+      const cached = messages[selectedConversation._id];
+      if (cached) {
+        setLocalMessages(cached);
+        return;
       }
 
       setLoading(true);
       try {
-       const res = await api.get(`/messages/get/${selectedConversation._id}`);
+        const res = await api.get(`/messages/get/${selectedConversation._id}`, {
+          withCredentials: true, // ensure cookies are sent
+        });
         setMessages(selectedConversation._id, res.data);
         setLocalMessages(res.data);
       } catch (error) {
-        console.error("Error in getting messages", error);
+        console.error("Error fetching messages:", error.response?.data || error.message);
       } finally {
         setLoading(false);
       }
     };
+
     getMessages();
-  }, [selectedConversation, setMessages, messages]);
+  }, [selectedConversation, setMessages, messages, messages[selectedConversation?._id]]);
 
   return { loading, messages: localMessages };
 };

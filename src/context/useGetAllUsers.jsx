@@ -10,25 +10,18 @@ function useGetAllUsers() {
       setLoading(true);
       try {
         const currentUser = JSON.parse(localStorage.getItem("user"));
-        if (!currentUser) {
-          setLoading(false);
-          return;
-        }
+        if (!currentUser) return;
 
-        // ✅ Send credentials (cookies) automatically
-        const response = await api.get("/users/allusers", { withCredentials: true });
+        const response = await api.get("/users/allusers");
+        console.log("All users response:", response.data);
 
-        // Exclude the current logged-in user
         const filteredUsers = response.data.filter(
           (user) => user._id !== currentUser._id
         );
 
         setAllUsers(filteredUsers);
       } catch (error) {
-        console.log(
-          "Error in useGetAllUsers:",
-          error.response?.data || error.message || error
-        );
+        console.log("Error in useGetAllUsers:", error.response?.data || error.message);
       } finally {
         setLoading(false);
       }

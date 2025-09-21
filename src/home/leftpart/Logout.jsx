@@ -3,23 +3,29 @@ import api from "../../context/api";
 import axios from "axios";
 import Cookies from "js-cookie";
 import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../context/AuthProvider";
 
 function Logout() {
   const [loading, setLoading] = useState(false);
+   const [authUser, setAuthUser] = useAuth();
+  const navigate = useNavigate();
   const handleLogout = async () => {
-    setLoading(true);
-    try {
-      const res = await api.post("users/logout");
-      localStorage.removeItem("ChatApp");
-      Cookies.remove("jwt");
-      setLoading(false);
-      toast.success("Logged out successfully");
-      window.location.reload();
-    } catch (error) {
-      console.log("Error in Logout", error);
-      toast.error("Error in logging out");
-    }
-  };
+  setLoading(true);
+  try {
+    await api.post("/users/logout"); // backend clears cookie
+    localStorage.removeItem("user"); // clear logged-in user
+    setAuthUser(null); // update context
+    toast.success("Logged out successfully");
+    navigate("/login"); // redirect
+  } catch (error) {
+    console.log("Error in Logout", error);
+    toast.error("Error in logging out");
+  } finally {
+    setLoading(false);
+  }
+};
+
   return (
     <>
       <hr />

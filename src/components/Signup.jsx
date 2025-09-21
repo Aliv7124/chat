@@ -6,26 +6,29 @@ import { Link, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 
 const Signup = () => {
-  const [authUser, setAuthUser] = useAuth();
-  const navigate = useNavigate();
-  const { register, handleSubmit, formState: { errors } } = useForm();
-
-  const onSubmit = async (data) => {
-    try {
-      const res = await api.post("/users/signup", {
+const onSubmit = async (data) => {
+  try {
+    const res = await api.post(
+      "/users/signup",
+      {
         username: data.username,
         email: data.email,
         password: data.password,
-      });
-      localStorage.setItem("ChatApp", JSON.stringify(res.data));
-      setAuthUser(res.data);
-      toast.success("Signup successful");
-      navigate("/home"); // redirect to home after signup
-    } catch (error) {
-      toast.error(error.response?.data?.error || "Email already exist");
-      console.log("Error response:", error.response?.data || error.message);
-    }
-  };
+      },
+      { withCredentials: true } // ✅ ensures JWT cookie is set
+    );
+
+    // Use the same key as login + AuthProvider expects
+    localStorage.setItem("user", JSON.stringify(res.data.user)); 
+    setAuthUser(res.data.user);
+
+    toast.success("Signup successful");
+    navigate("/"); // redirect to home after signup
+  } catch (error) {
+    toast.error(error.response?.data?.error || "Email already exists");
+    console.log("Error response:", error.response?.data || error.message);
+  }
+};
 
   return (
     <div className="flex h-screen items-center justify-center">

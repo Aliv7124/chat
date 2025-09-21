@@ -1,12 +1,13 @@
 import React from "react";
 
 function Message({ message }) {
-  // ✅ Get logged-in user from localStorage key "user"
-  const authUser = JSON.parse(localStorage.getItem("user"));
-  const itsMe = message.senderId === authUser?._id;
+  // Get logged-in user from localStorage key "user"
+  const authUser = JSON.parse(localStorage.getItem("user") || '{}');
+  const itsMe = authUser._id === message.senderId;
 
-  const chatName = itsMe ? "chat-end" : "chat-start";
-  const chatColor = itsMe ? "bg-blue-500" : "bg-gray-700";
+  // Tailwind flex alignment
+  const alignment = itsMe ? "justify-end" : "justify-start";
+  const bubbleColor = itsMe ? "bg-blue-500 text-white" : "bg-gray-300 text-black";
 
   const formattedTime = message.createdAt
     ? new Date(message.createdAt).toLocaleTimeString([], {
@@ -16,12 +17,10 @@ function Message({ message }) {
     : "…";
 
   return (
-    <div className="p-1">
-      <div className={`chat ${chatName}`}>
-        <div className={`chat-bubble text-white ${chatColor}`}>
-          {message.message}
-        </div>
-        <div className="chat-footer text-gray-400 text-xs">{formattedTime}</div>
+    <div className={`flex ${alignment} mb-2 px-2`}>
+      <div className={`rounded-lg p-2 max-w-xs ${bubbleColor}`}>
+        <p>{message.message}</p>
+        <div className="text-xs text-gray-500 text-right">{formattedTime}</div>
       </div>
     </div>
   );

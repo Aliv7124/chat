@@ -4,6 +4,8 @@ import { useAuth } from "../context/AuthProvider";
 import api from "../context/api";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 /*
 const Login = () => {
   const [authUser, setAuthUser] = useAuth();
@@ -29,20 +31,24 @@ const onSubmit = async (data) => {
 const Login = () => {
   const [authUser, setAuthUser] = useAuth();
   const navigate = useNavigate();
-  const { register, handleSubmit, formState: { errors } } = useForm();
+  const [loading, setLoading] = useState(false);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm();
 
   const onSubmit = async (data) => {
+    setLoading(true);
     try {
       const res = await api.post(
         "/users/login",
-        {
-          email: data.email,
-          password: data.password,
-        },
-        { withCredentials: true } // ✅ Important for cookie-based auth
+        { email: data.email, password: data.password },
+        { withCredentials: true } // ✅ important for cookie auth
       );
 
-      // Save only user info; JWT comes automatically via cookie
+      // Save only user info; JWT comes via cookie automatically
       localStorage.setItem("user", JSON.stringify(res.data.user));
       setAuthUser(res.data.user);
 
@@ -51,9 +57,10 @@ const Login = () => {
     } catch (error) {
       toast.error(error.response?.data?.msg || "Invalid Email or Password");
       console.log("Login error:", error.response?.data || error.message);
+    } finally {
+      setLoading(false);
     }
   };
-
 
   return (
      <div className="min-h-screen flex items-center justify-center bg-gradient-to-r from-blue-900 to-slate-900">
