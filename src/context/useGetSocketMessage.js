@@ -1,27 +1,4 @@
-/* import { useEffect } from "react";
-import { useSocketContext } from "./SocketContext";
-import useConversation from "../zustand/useConversation";
-
-const useGetSocketMessage = () => {
-  const { socket } = useSocketContext();
-  const { messages, setMessage } = useConversation();
-
-  useEffect(() => {
-    if (!socket) return;
-    socket.on("newMessage", (newMessage) => {
-      const audio = new Audio("/assets/notification.mp3");
-      audio.play();
-      setMessage([...messages, newMessage]);
-    });
-    return () => socket.off("newMessage");
-  }, [socket, messages]);
-};
-
-export default useGetSocketMessage;
-*/
-
-
-
+/*
 import { useEffect } from "react";
 import { useSocketContext } from "./SocketContext";
 import useConversation from "../zustand/useConversation";
@@ -42,6 +19,37 @@ const useGetSocketMessage = () => {
     });
 
     return () => socket.off("receive_message");
+  }, [socket, addMessage]);
+};
+
+export default useGetSocketMessage;
+*/
+
+
+
+import { useEffect } from "react";
+import { useSocketContext } from "./SocketContext";
+import useConversation from "../zustand/useConversation";
+
+const useGetSocketMessage = () => {
+  const { socket } = useSocketContext();
+  const { addMessage } = useConversation();
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleMessage = (newMessage) => {
+      const audio = new Audio("/assets/notification.mp3");
+      audio.play();
+
+      // Store message under its conversation
+      const conversationId = newMessage.to; // backend should send conversation ID
+      addMessage(conversationId, newMessage);
+    };
+
+    socket.on("receive_message", handleMessage);
+
+    return () => socket.off("receive_message", handleMessage);
   }, [socket, addMessage]);
 };
 

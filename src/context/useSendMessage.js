@@ -7,42 +7,51 @@ const useSendMessage = () => {
   const [loading, setLoading] = useState(false);
   const { selectedConversation, addMessage } = useConversation();
   const { socket } = useSocketContext();
+  const authUser = JSON.parse(localStorage.getItem("user") || '{}'); // get current user
 
   const sendMessages = async (text) => {
     if (!text.trim()) return;
 
-    // build a local temp message
+    // Temporary local message
     const tempMessage = {
-      _id: Date.now(), // temporary ID
-      from: "me",      // or currentUserId if you track it
+      _id: Date.now(),
+      senderId: authUser._id,  // use actual logged-in user ID
       to: selectedConversation._id,
       text,
       createdAt: new Date().toISOString(),
-      pending: true, // mark as unsynced
+      pending: true,
     };
 
-    // 1. Optimistic update
+    // 1️⃣ Optimistic update
     addMessage(selectedConversation._id, tempMessage);
 
     try {
       setLoading(true);
 
-      // 2. Send to backend
-      const res = await api.post(`/messages/send/${selectedConversation._id}`, { message: text });
+      // 2️⃣ Send to backend
+      const res = await api.post(
+        `/messages/send/${selectedConversation._id}`,
+        { message: text },
+        { withCredentials: true } // ensure auth cookies are sent
+      );
 
-      // 3. Replace temp with actual saved message
-      addMessage(selectedConversation._id, res.data);
+      // 3️⃣ Replace temp with actual saved message
+      const savedMessage = {
+        ...res.data,
+        senderId: res.data.from, // map backend "from" to "senderId"
+      };
+      addMessage(selectedConversation._id, savedMessage);
 
-      // 4. Emit via socket
-      socket.emit("send_message", {
+      // 4️⃣ Emit via socket
+      socket?.emit("send_message", {
         to: selectedConversation._id,
-        from: res.data.from,
-        text: res.data.text,
-        createdAt: res.data.createdAt,
+        senderId: savedMessage.senderId,
+        text: savedMessage.text,
+        createdAt: savedMessage.createdAt,
       });
 
     } catch (error) {
-      console.log("Error in sendMessages", error);
+      console.error("Error in sendMessages:", error);
     } finally {
       setLoading(false);
     }
@@ -52,8 +61,6 @@ const useSendMessage = () => {
 };
 
 export default useSendMessage;
-
-
 
 
 
