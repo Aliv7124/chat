@@ -2,8 +2,8 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { useAuth } from "./AuthProvider";
 import { io } from "socket.io-client";
 
-const socketContext = createContext();
-export const useSocketContext = () => useContext(socketContext);
+const SocketContext = createContext();
+export const useSocketContext = () => useContext(SocketContext);
 
 export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
@@ -18,9 +18,10 @@ export const SocketProvider = ({ children }) => {
         ? "https://chat-backend-jpy3.onrender.com"
         : "http://localhost:4002";
 
+    // ✅ Use auth instead of query to avoid CORS issues with credentials
     const socketInstance = io(BACKEND_URL, {
       withCredentials: true,
-      query: { userId: authUser._id },
+      auth: { userId: authUser._id },
     });
 
     setSocket(socketInstance);
@@ -34,8 +35,8 @@ export const SocketProvider = ({ children }) => {
   }, [authUser]);
 
   return (
-    <socketContext.Provider value={{ socket, onlineUsers }}>
+    <SocketContext.Provider value={{ socket, onlineUsers }}>
       {children}
-    </socketContext.Provider>
+    </SocketContext.Provider>
   );
 };
