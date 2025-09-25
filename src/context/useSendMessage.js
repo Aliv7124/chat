@@ -70,30 +70,34 @@ export default useSendMessage;
 
 const useSendMessage = () => {
   const [loading, setLoading] = useState(false);
+  const { socket } = useSocketContext();
   const { selectedConversation, addMessage } = useConversation();
 
   const sendMessage = async (text) => {
-    if (!text.trim()) return;
+    if (!text.trim() || !socket || !selectedConversation) return;
 
-    setLoading(true);
     const tempMessage = {
-      _id: Date.now(), // temporary ID
+      _id: Date.now(),
       sender: "me",
       message: text,
       createdAt: new Date().toISOString(),
     };
 
-    // Optimistically update UI
-    addMessage(tempMessage);
+    // Optimistic UI update
+    addMessage(selectedConversation._id, tempMessage);
 
+    setLoading(true);
     try {
-      const res = await api.post(`/messages/send/${selectedConversation._id}`, { message: text });
+      const res = await api.post(
+        `/messages/send/${selectedConversation._id}`,
+        { message: text }
+      );
       const savedMessage = res.data;
 
-      // Replace tempMessage with actual saved message
-      addMessage(savedMessage, true);
-      
-      // Emit via Socket.IO
+      // Replace temp message with saved message
+      addMessage(selectedConversation._id, savedMessage, true);
+
+      // Emit via socket
       socket.emit("sendMessage", {
         conversationId: selectedConversation._id,
         message: savedMessage,

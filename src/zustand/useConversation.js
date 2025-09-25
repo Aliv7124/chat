@@ -2,9 +2,10 @@ import { create } from "zustand";
 
 const useConversation = create((set, get) => ({
   selectedConversation: null,
-  messages: {}, // changed from [] to an object storing messages by chat ID
+  messages: {}, // messages stored by conversation ID
 
-  setSelectedConversation: (conversation) => set({ selectedConversation: conversation }),
+  setSelectedConversation: (conversation) =>
+    set({ selectedConversation: conversation }),
 
   setMessages: (conversationId, newMessages) => {
     const messages = get().messages;
@@ -16,13 +17,16 @@ const useConversation = create((set, get) => ({
     });
   },
 
-  addMessage: (conversationId, message) => {
+  addMessage: (conversationId, message, replace = false) => {
     const messages = get().messages;
     const existing = messages[conversationId] || [];
+
     set({
       messages: {
         ...messages,
-        [conversationId]: [...existing, message],
+        [conversationId]: replace
+          ? existing.map((m) => (m._id === message._id ? message : m))
+          : [...existing, message],
       },
     });
   },
