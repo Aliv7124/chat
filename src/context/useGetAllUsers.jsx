@@ -13,15 +13,13 @@ function useGetAllUsers() {
         if (!currentUser) return;
 
         const response = await api.get("/users/allusers");
-        console.log("All users response:", response.data);
-
         const filteredUsers = response.data.filter(
           (user) => user._id !== currentUser._id
         );
 
         setAllUsers(filteredUsers);
       } catch (error) {
-        console.log("Error in useGetAllUsers:", error.response?.data || error.message);
+        console.error("Error fetching users:", error.response?.data || error.message);
       } finally {
         setLoading(false);
       }

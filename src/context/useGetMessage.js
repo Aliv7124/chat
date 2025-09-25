@@ -20,7 +20,7 @@ const useGetMessage = () => {
       setLoading(true);
       try {
         const res = await api.get(`/messages/get/${selectedConversation._id}`, {
-          withCredentials: true, // ensure cookies are sent
+          withCredentials: true,
         });
         setMessages(selectedConversation._id, res.data);
         setLocalMessages(res.data);
@@ -32,7 +32,7 @@ const useGetMessage = () => {
     };
 
     getMessages();
-  }, [selectedConversation, setMessages, messages, messages[selectedConversation?._id]]);
+  }, [selectedConversation, setMessages, messages]);
 
   return { loading, messages: localMessages };
 };

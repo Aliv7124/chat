@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 const useConversation = create((set, get) => ({
   selectedConversation: null,
-  messages: {}, // messages stored by conversation ID
+  messages: {},
 
   setSelectedConversation: (conversation) =>
     set({ selectedConversation: conversation }),
@@ -18,6 +18,7 @@ const useConversation = create((set, get) => ({
   },
 
   addMessage: (conversationId, message, replace = false) => {
+    if (!conversationId) return; // guard against undefined
     const messages = get().messages;
     const existing = messages[conversationId] || [];
 

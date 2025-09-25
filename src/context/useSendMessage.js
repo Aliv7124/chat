@@ -1,9 +1,9 @@
-
+/*
 import { useState } from "react";
 import useConversation from "../zustand/useConversation.js";
 import api from "./api.js";
 import { useSocketContext } from "./SocketContext";
-/*
+
 const useSendMessage = () => {
   const [loading, setLoading] = useState(false);
   const { selectedConversation, addMessage } = useConversation();
@@ -67,6 +67,10 @@ export default useSendMessage;
 
 */
 
+import { useState } from "react";
+import { useSocketContext } from "./SocketContext";
+import useConversation from "../zustand/useConversation.js";
+import api from "./api.js";
 
 const useSendMessage = () => {
   const [loading, setLoading] = useState(false);
@@ -83,7 +87,6 @@ const useSendMessage = () => {
       createdAt: new Date().toISOString(),
     };
 
-    // Optimistic UI update
     addMessage(selectedConversation._id, tempMessage);
 
     setLoading(true);
@@ -94,10 +97,8 @@ const useSendMessage = () => {
       );
       const savedMessage = res.data;
 
-      // Replace temp message with saved message
       addMessage(selectedConversation._id, savedMessage, true);
 
-      // Emit via socket
       socket.emit("sendMessage", {
         conversationId: selectedConversation._id,
         message: savedMessage,
