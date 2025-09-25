@@ -28,7 +28,7 @@ import useConversation from "../zustand/useConversation";
 
 const useGetSocketMessage = () => {
   const { socket } = useSocketContext();
-  const { selectedConversation, addMessage } = useConversation();
+  const { addMessage } = useConversation();
 
   useEffect(() => {
     if (!socket) return;
@@ -37,14 +37,12 @@ const useGetSocketMessage = () => {
       const audio = new Audio("/assets/notification.mp3");
       audio.play();
 
-      if (selectedConversation && newMessage.from === selectedConversation._id) {
-        // add message only to the active conversation
-        addMessage(selectedConversation._id, newMessage);
-      }
+      // Store message in its conversation, no matter which one is open
+      addMessage(newMessage.from, newMessage);
     });
 
     return () => socket.off("receive_message");
-  }, [socket, selectedConversation, addMessage]);
+  }, [socket, addMessage]);
 };
 
 export default useGetSocketMessage;
