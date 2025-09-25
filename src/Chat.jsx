@@ -1,17 +1,16 @@
-import React, { useState,useEffect,useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import useGetMessage from "./context/useGetMessage";
 import useGetSocketMessage from "./context/useGetSocketMessage";
-import useSendMessage from "./context/useSendMessage"
-import ChatUser from "./home/rightpart/Chatuser"
-import Message from "./home/rightpart/Message"
+import useSendMessage from "./context/useSendMessage";
+import ChatUser from "./home/rightpart/Chatuser";
+import Message from "./home/rightpart/Message";
 import useConversation from "./zustand/useConversation";
-
 
 const Chat = () => {
   const [text, setText] = useState("");
-  const { messages = [] } = useGetMessage(); // ensure messages is always an array
-  useGetSocketMessage();
-  const { sendMessages } = useSendMessage();
+  const { messages = [] } = useGetMessage(); // always array
+  useGetSocketMessage(); // listens for incoming messages
+  const { sendMessage } = useSendMessage(); // ✅ corrected
   const { selectedConversation } = useConversation();
   const messagesEndRef = useRef(null);
 
@@ -23,7 +22,7 @@ const Chat = () => {
   const handleSend = async () => {
     if (!text.trim() || !selectedConversation) return;
     try {
-      await sendMessages(text);
+      await sendMessage(text); // ✅ corrected
       setText("");
     } catch (err) {
       console.error("Failed to send message:", err);
