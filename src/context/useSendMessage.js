@@ -1,7 +1,7 @@
 import { useState } from "react";
 import useConversation from "../zustand/useConversation.js";
 import api from "./api.js";
-import { useSocketContext } from "./SocketContext.js";
+import { useSocketContext } from "./SocketContext";
 
 const useSendMessage = () => {
   const [loading, setLoading] = useState(false);
