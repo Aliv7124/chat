@@ -5,14 +5,16 @@ import Loading from "../../components/Loading.jsx";
 import useGetSocketMessage from "../../context/useGetSocketMessage.js";
 import useConversation from "../../zustand/useConversation"
 
+
 function Messages() {
-  const { selectedConversation, messages } = useConversation();
+  const { selectedConversation, messages, setMessages } = useConversation();
   const { loading, messages: fetchedMessages } = useGetMessage();
-  const { addMessage, setMessages } = useConversation();
-  useGetSocketMessage(); // listing incoming messages
+  const { addMessage } = useConversation();
+  useGetSocketMessage(); // subscribe to incoming messages
 
   const lastMsgRef = useRef();
 
+  // Update Zustand store when messages are fetched
   useEffect(() => {
     if (selectedConversation && fetchedMessages) {
       setMessages(selectedConversation._id, fetchedMessages);
@@ -23,6 +25,7 @@ function Messages() {
     ? messages[selectedConversation._id] || []
     : [];
 
+  // Auto-scroll to last message
   useEffect(() => {
     setTimeout(() => {
       if (lastMsgRef.current) {
@@ -50,7 +53,7 @@ function Messages() {
       ) : (
         <div className="text-center mt-[20%]">
           <h3 className="text-white">{selectedConversation?.username}</h3>
-          <p className="text-gray-300">Say! Hi to start the conversation</p>
+          <p className="text-gray-300">Say Hi to start the conversation</p>
         </div>
       )}
     </div>
