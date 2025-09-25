@@ -33,7 +33,8 @@ export default useGetSocketMessage;
 */
 
 import { useEffect } from "react";
-import { socket } from "../socket.js";
+import { useSocketContext } from "./SocketContext";
+
 import useConversation from "../zustand/useConversation.js";
 
 const useGetSocketMessage = () => {
