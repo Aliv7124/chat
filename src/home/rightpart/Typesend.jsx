@@ -3,12 +3,12 @@ import useSendMessage from "../../context/useSendMessage.js";
 
 function Typesend() {
   const [message, setMessage] = useState("");
-  const { loading, sendMessages } = useSendMessage();
+  const { loading, sendMessage } = useSendMessage(); // ✅ use correct function name
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!message.trim()) return;
-    await sendMessages(message);
+    await sendMessage(message); // ✅ call sendMessage
     setMessage("");
   };
 

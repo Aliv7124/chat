@@ -3,13 +3,13 @@ import Message from "./Message.jsx";
 import useGetMessage from "../../context/useGetMessage.js";
 import Loading from "../../components/Loading.jsx";
 import useGetSocketMessage from "../../context/useGetSocketMessage.js";
-import useConversation from "../../zustand/useConversation"
-
+import useConversation from "../../zustand/useConversation";
 
 function Messages() {
   const { selectedConversation, messages, setMessages } = useConversation();
   const { loading, messages: fetchedMessages } = useGetMessage();
   const { addMessage } = useConversation();
+
   useGetSocketMessage(); // subscribe to incoming messages
 
   const lastMsgRef = useRef();
