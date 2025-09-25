@@ -31,16 +31,17 @@ const useGetSocketMessage = () => {
 
 export default useGetSocketMessage;
 */
-
 import { useEffect } from "react";
 import { useSocketContext } from "./SocketContext";
-
 import useConversation from "../zustand/useConversation.js";
 
 const useGetSocketMessage = () => {
+  const { socket } = useSocketContext(); // ✅ get socket from context
   const { addMessage, selectedConversation } = useConversation();
 
   useEffect(() => {
+    if (!socket) return; // wait until socket is initialized
+
     const handleMessage = (data) => {
       if (data.conversationId === selectedConversation?._id) {
         addMessage({ ...data.message, sender: "other" });
@@ -52,7 +53,7 @@ const useGetSocketMessage = () => {
     return () => {
       socket.off("receiveMessage", handleMessage);
     };
-  }, [selectedConversation]);
+  }, [socket, selectedConversation]); // ✅ add socket as dependency
 
   return null;
 };
