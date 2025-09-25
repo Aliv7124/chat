@@ -1,8 +1,9 @@
+
 import { useState } from "react";
 import useConversation from "../zustand/useConversation.js";
 import api from "./api.js";
 import { useSocketContext } from "./SocketContext";
-
+/*
 const useSendMessage = () => {
   const [loading, setLoading] = useState(false);
   const { selectedConversation, addMessage } = useConversation();
@@ -64,29 +65,47 @@ export default useSendMessage;
 
 
 
-/*import { useState } from "react";
-import useConversation from "../zustand/useConversation.js";
-import api from "./api.js";
+*/
+
 
 const useSendMessage = () => {
   const [loading, setLoading] = useState(false);
-  const { selectedConversation, messages, addMessage } = useConversation();
+  const { selectedConversation, addMessage } = useConversation();
 
-  const sendMessages = async (message) => {
+  const sendMessage = async (text) => {
+    if (!text.trim()) return;
+
     setLoading(true);
+    const tempMessage = {
+      _id: Date.now(), // temporary ID
+      sender: "me",
+      message: text,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Optimistically update UI
+    addMessage(tempMessage);
+
     try {
-     const res = await api.post(`/messages/send/${selectedConversation._id}`, { message });
-       
-      addMessage(selectedConversation._id, res.data);
-      setLoading(false);
-    } catch (error) {
-      console.log("Error in send messages", error);
+      const res = await api.post(`/messages/send/${selectedConversation._id}`, { message: text });
+      const savedMessage = res.data;
+
+      // Replace tempMessage with actual saved message
+      addMessage(savedMessage, true);
+      
+      // Emit via Socket.IO
+      socket.emit("sendMessage", {
+        conversationId: selectedConversation._id,
+        message: savedMessage,
+      });
+    } catch (err) {
+      console.error("Send message error:", err);
+    } finally {
       setLoading(false);
     }
   };
 
-  return { loading, sendMessages };
+  return { sendMessage, loading };
 };
 
 export default useSendMessage;
-*/

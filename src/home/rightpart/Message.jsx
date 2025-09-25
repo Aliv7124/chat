@@ -1,12 +1,9 @@
 
 /*
 
-
-
 import React from "react";
 
 function Message({ message }) {
-  // Get logged-in user from localStorage key "user"
   const authUser = JSON.parse(localStorage.getItem("user") || '{}');
   const itsMe = authUser._id === message.senderId;
 
@@ -24,7 +21,7 @@ function Message({ message }) {
   return (
     <div className={`d-flex ${alignment} mb-2 px-2`}>
       <div className={`p-2 rounded ${bubbleColor}`} style={{ maxWidth: "60%" }}>
-        <p className="mb-1">{message.message}</p>
+        <p className="mb-1">{message.text}</p>
         <div className="text-end text-muted small">{formattedTime}</div>
       </div>
     </div>
@@ -34,13 +31,16 @@ function Message({ message }) {
 export default Message;
 */
 
+
 import React from "react";
 
 function Message({ message }) {
   const authUser = JSON.parse(localStorage.getItem("user") || '{}');
-  const itsMe = authUser._id === message.senderId;
 
-  // Bootstrap flex alignment
+  // Correct sender check
+  const senderId = message.senderId || message.from; // fallback to `from`
+  const itsMe = authUser._id === senderId;
+
   const alignment = itsMe ? "justify-content-end" : "justify-content-start";
   const bubbleColor = itsMe ? "bg-primary text-white" : "bg-light text-dark";
 
@@ -54,7 +54,7 @@ function Message({ message }) {
   return (
     <div className={`d-flex ${alignment} mb-2 px-2`}>
       <div className={`p-2 rounded ${bubbleColor}`} style={{ maxWidth: "60%" }}>
-        <p className="mb-1">{message.text}</p> {/* ✅ use message.text */}
+        <p className="mb-1">{message.text || message.message}</p>
         <div className="text-end text-muted small">{formattedTime}</div>
       </div>
     </div>
