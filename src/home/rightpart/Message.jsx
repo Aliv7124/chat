@@ -7,7 +7,7 @@ function Message({ message }) {
 
   // Tailwind flex alignment
   const alignment = itsMe ? "justify-end" : "justify-start";
-  const bubbleColor = itsMe ? "bg-blue-500 text-white" : "bg-gray-300 text-black";
+  const bubbleColor = itsMe ? "bg-blue-500 text-white" : "bg-gray-300 text-white";
 
   const formattedTime = message.createdAt
     ? new Date(message.createdAt).toLocaleTimeString([], {

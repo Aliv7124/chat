@@ -19,8 +19,8 @@ export const SocketProvider = ({ children }) => {
         : "http://localhost:4002";
 
     const socketInstance = io(BACKEND_URL, {
-      query: { userId: authUser._id },
       withCredentials: true,
+      query: { userId: authUser._id },
     });
 
     setSocket(socketInstance);
