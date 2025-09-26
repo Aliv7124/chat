@@ -1,4 +1,4 @@
-import { create } from "zustand";
+/* import { create } from "zustand";
 
 const useConversation = create((set, get) => ({
   selectedConversation: null,
@@ -34,16 +34,49 @@ const useConversation = create((set, get) => ({
 }));
 
 export default useConversation;
+*/
 
-/*
+
 import { create } from "zustand";
 
-const useConversation = create((set) => ({
+const useConversation = create((set, get) => ({
   selectedConversation: null,
-  messages: [],
-  setSelectedConversation: (conversation) => set({ selectedConversation: conversation }),
-  setMessage: (messages) => set({ messages }),
+  messages: {},
+
+  // ✅ Set new conversation and clear old messages immediately
+  setSelectedConversation: (conversation) => {
+    set({
+      selectedConversation: conversation,
+      messages: conversation ? { [conversation._id]: [] } : {}, // clear old msgs
+    });
+  },
+
+  // ✅ Replace all messages for a conversation
+  setMessages: (conversationId, newMessages) => {
+    if (!conversationId) return;
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [conversationId]: newMessages,
+      },
+    }));
+  },
+
+  // ✅ Add single message without overwriting the entire array
+  addMessage: (conversationId, message) => {
+    if (!conversationId) return;
+    set((state) => {
+      const existing = state.messages[conversationId] || [];
+      // prevent duplicates
+      if (existing.some((m) => m._id === message._id)) return state;
+      return {
+        messages: {
+          ...state.messages,
+          [conversationId]: [...existing, message],
+        },
+      };
+    });
+  },
 }));
 
 export default useConversation;
-*/
