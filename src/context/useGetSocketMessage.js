@@ -1,36 +1,4 @@
 /*
-
-
-
-
-import { useEffect } from "react";
-import { useSocketContext } from "./SocketContext";
-import useConversation from "../zustand/useConversation";
-
-const useGetSocketMessage = () => {
-  const { socket } = useSocketContext();
-  const { addMessage } = useConversation();
-
-  useEffect(() => {
-    if (!socket) return;
-
-    const handleMessage = (newMessage) => {
-      const audio = new Audio("/assets/notification.mp3");
-      audio.play();
-
-      // Store message under its conversation
-      const conversationId = newMessage.to; // backend should send conversation ID
-      addMessage(conversationId, newMessage);
-    };
-
-    socket.on("receive_message", handleMessage);
-
-    return () => socket.off("receive_message", handleMessage);
-  }, [socket, addMessage]);
-};
-
-export default useGetSocketMessage;
-*/
 import { useEffect } from "react";
 import { useSocketContext } from "./SocketContext";
 import useConversation from "../zustand/useConversation.js";
@@ -54,6 +22,36 @@ const useGetSocketMessage = () => {
   }, [socket, selectedConversation, addMessage]);
 
   return null;
+};
+
+export default useGetSocketMessage;
+*/
+
+import { useEffect } from "react";
+import { useSocketContext } from "./SocketContext";
+import useConversation from "../zustand/useConversation";
+
+const useGetSocketMessage = () => {
+  const { socket } = useSocketContext();
+  const { selectedConversation, addMessage } = useConversation();
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleMessage = (msg) => {
+      const authUser = JSON.parse(localStorage.getItem("user") || "{}");
+
+      // 🚀 Prevent duplicate: don't add if I'm the sender
+      if (msg.senderId === authUser._id) return;
+
+      if (selectedConversation && msg.conversationId === selectedConversation._id) {
+        addMessage(selectedConversation._id, msg);
+      }
+    };
+
+    socket.on("receiveMessage", handleMessage);
+    return () => socket.off("receiveMessage", handleMessage);
+  }, [socket, selectedConversation, addMessage]);
 };
 
 export default useGetSocketMessage;

@@ -1,3 +1,4 @@
+/*
 import { useState } from "react";
 import { useSocketContext } from "./SocketContext";
 import useConversation from "../zustand/useConversation";
@@ -45,3 +46,39 @@ const useSendMessage = () => {
 };
 
 export default useSendMessage;
+*/
+
+
+const sendMessage = async (text) => {
+  if (!text.trim() || !socket || !selectedConversation) return;
+
+  const tempMessage = {
+    _id: Date.now(),
+    senderId: JSON.parse(localStorage.getItem("user"))._id, // ✅ ensure senderId
+    message: text,
+    createdAt: new Date().toISOString(),
+  };
+
+  addMessage(selectedConversation._id, tempMessage); // optimistic UI
+
+  setLoading(true);
+  try {
+    const res = await api.post(
+      `/messages/send/${selectedConversation._id}`,
+      { message: text }
+    );
+    const savedMessage = res.data;
+
+    // ✅ Instead of re-adding, replace temp with real message
+    addMessage(selectedConversation._id, savedMessage);
+    
+    socket.emit("sendMessage", {
+      conversationId: selectedConversation._id,
+      message: savedMessage,
+    });
+  } catch (err) {
+    console.error("Send message error:", err);
+  } finally {
+    setLoading(false);
+  }
+};
