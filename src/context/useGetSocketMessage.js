@@ -28,30 +28,26 @@ export default useGetSocketMessage;
 */
 
 import { useEffect } from "react";
-import { useSocketContext } from "./SocketContext";
-import useConversation from "../zustand/useConversation";
+import { useSocketContext } from "./SocketContext.js";
+import useConversation from "../zustand/useConversation.js";
 
 const useGetSocketMessage = () => {
   const { socket } = useSocketContext();
-  const { selectedConversation, addMessage } = useConversation();
+  const { addMessage } = useConversation();
 
   useEffect(() => {
     if (!socket) return;
 
-    const handleMessage = (msg) => {
-      const authUser = JSON.parse(localStorage.getItem("user") || "{}");
-
-      // 🚀 Prevent duplicate: don't add if I'm the sender
-      if (msg.senderId === authUser._id) return;
-
-      if (selectedConversation && msg.conversationId === selectedConversation._id) {
-        addMessage(selectedConversation._id, msg);
+    socket.on("newMessage", (msg) => {
+      if (msg.conversationId) {
+        addMessage(msg.conversationId, msg);
       }
-    };
+    });
 
-    socket.on("receiveMessage", handleMessage);
-    return () => socket.off("receiveMessage", handleMessage);
-  }, [socket, selectedConversation, addMessage]);
+    return () => {
+      socket.off("newMessage");
+    };
+  }, [socket, addMessage]);
 };
 
 export default useGetSocketMessage;

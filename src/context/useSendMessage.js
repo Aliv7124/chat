@@ -49,27 +49,38 @@ export default useSendMessage;
 */
 
 import { useState } from "react";
-import api from "./api.js";
+import { useSocketContext } from "./SocketContext.js";
 import useConversation from "../zustand/useConversation.js";
+import api from "./api.js";
 
 const useSendMessage = () => {
   const [loading, setLoading] = useState(false);
   const { selectedConversation, addMessage } = useConversation();
+  const { socket } = useSocketContext();
 
-  const sendMessage = async (message) => {
-    if (!selectedConversation) return;
+  const sendMessage = async (text) => {
+    if (!selectedConversation?._id) return;
     setLoading(true);
-    try {
-      // send message to backend
-      const res = await api.post(`/messages/send/${selectedConversation._id}`, { message });
 
-      // backend should return the saved message object with _id
+    try {
+      // 1. Send to backend API (store in DB)
+      const res = await api.post(
+        `/messages/send/${selectedConversation._id}`,
+        { message: text }
+      );
+
       const newMessage = res.data;
 
-      // ✅ optimistic update (avoid duplicates)
+      // 2. Add to local Zustand state (optimistic update)
       addMessage(selectedConversation._id, newMessage);
+
+      // 3. Emit socket event only to this conversation room
+      socket.emit("sendMessage", {
+        conversationId: selectedConversation._id,
+        message: newMessage,
+      });
     } catch (error) {
-      console.error("Send error:", error.message);
+      console.error("Send message failed:", error);
     } finally {
       setLoading(false);
     }
