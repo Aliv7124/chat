@@ -1,4 +1,4 @@
-/*
+
 import { useEffect } from "react";
 import { useSocketContext } from "./SocketContext";
 import useConversation from "../zustand/useConversation.js";
@@ -25,29 +25,4 @@ const useGetSocketMessage = () => {
 };
 
 export default useGetSocketMessage;
-*/
 
-import { useEffect } from "react";
-import { useSocketContext } from "./SocketContext.js";
-import useConversation from "../zustand/useConversation.js";
-
-const useGetSocketMessage = () => {
-  const { socket } = useSocketContext();
-  const { addMessage } = useConversation();
-
-  useEffect(() => {
-    if (!socket) return;
-
-    socket.on("newMessage", (msg) => {
-      if (msg.conversationId) {
-        addMessage(msg.conversationId, msg);
-      }
-    });
-
-    return () => {
-      socket.off("newMessage");
-    };
-  }, [socket, addMessage]);
-};
-
-export default useGetSocketMessage;
