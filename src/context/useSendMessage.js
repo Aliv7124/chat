@@ -48,37 +48,34 @@ const useSendMessage = () => {
 export default useSendMessage;
 */
 
+import { useState } from "react";
+import api from "./api.js";
+import useConversation from "../zustand/useConversation.js";
 
-const sendMessage = async (text) => {
-  if (!text.trim() || !socket || !selectedConversation) return;
+const useSendMessage = () => {
+  const [loading, setLoading] = useState(false);
+  const { selectedConversation, addMessage } = useConversation();
 
-  const tempMessage = {
-    _id: Date.now(),
-    senderId: JSON.parse(localStorage.getItem("user"))._id, // ✅ ensure senderId
-    message: text,
-    createdAt: new Date().toISOString(),
+  const sendMessage = async (message) => {
+    if (!selectedConversation) return;
+    setLoading(true);
+    try {
+      // send message to backend
+      const res = await api.post(`/messages/send/${selectedConversation._id}`, { message });
+
+      // backend should return the saved message object with _id
+      const newMessage = res.data;
+
+      // ✅ optimistic update (avoid duplicates)
+      addMessage(selectedConversation._id, newMessage);
+    } catch (error) {
+      console.error("Send error:", error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  addMessage(selectedConversation._id, tempMessage); // optimistic UI
-
-  setLoading(true);
-  try {
-    const res = await api.post(
-      `/messages/send/${selectedConversation._id}`,
-      { message: text }
-    );
-    const savedMessage = res.data;
-
-    // ✅ Instead of re-adding, replace temp with real message
-    addMessage(selectedConversation._id, savedMessage);
-    
-    socket.emit("sendMessage", {
-      conversationId: selectedConversation._id,
-      message: savedMessage,
-    });
-  } catch (err) {
-    console.error("Send message error:", err);
-  } finally {
-    setLoading(false);
-  }
+  return { loading, sendMessage };
 };
+
+export default useSendMessage;
