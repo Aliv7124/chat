@@ -1,4 +1,4 @@
-
+/*
 import { useState } from "react";
 import { useSocketContext } from "./SocketContext";
 import useConversation from "../zustand/useConversation";
@@ -34,6 +34,63 @@ const useSendMessage = () => {
       socket.emit("sendMessage", {
         conversationId: selectedConversation._id,
         message: savedMessage,
+      });
+    } catch (err) {
+      console.error("Send message error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { sendMessage, loading };
+};
+
+export default useSendMessage;
+*/
+
+
+
+
+
+import { useState } from "react";
+import { useSocketContext } from "./SocketContext";
+import useConversation from "../zustand/useConversation";
+import api from "./api";
+
+const useSendMessage = () => {
+  const [loading, setLoading] = useState(false);
+  const { socket } = useSocketContext();
+  const { selectedConversation, addMessage } = useConversation();
+
+  const sendMessage = async (text, toUserId) => { // add `toUserId`
+    if (!text.trim() || !socket || !selectedConversation || !toUserId) return;
+
+    const tempMessage = {
+      _id: Date.now(),
+      sender: "me",
+      message: text,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Optimistic UI update
+    addMessage(selectedConversation._id, tempMessage);
+
+    setLoading(true);
+    try {
+      const res = await api.post(
+        `/messages/send/${selectedConversation._id}`,
+        { message: text }
+      );
+      const savedMessage = res.data;
+
+      // Replace temp message with saved message
+      addMessage(selectedConversation._id, savedMessage, true);
+
+      // Emit message to backend specifying the receiver
+      socket.emit("sendMessage", {
+        conversationId: selectedConversation._id,
+        message: savedMessage,
+        to: toUserId,
       });
     } catch (err) {
       console.error("Send message error:", err);
