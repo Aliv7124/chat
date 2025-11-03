@@ -1,0 +1,25 @@
+body.light-mode {
+  background-color: #f8f9fa;
+  color: #000;
+}
+
+body.dark-mode {
+  background-color: #121212;
+  color: #fff;
+}
+
+body.dark-mode .bg-light {
+  background-color: #1e1e1e !important;
+  color: #fff !important;
+}
+
+body.dark-mode .bg-white {
+  background-color: #222 !important;
+  color: #fff !important;
+}
+
+body.dark-mode input,
+body.dark-mode textarea {
+  background-color: #333 !important;
+  color: #fff !important;
+}
