@@ -541,22 +541,36 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
     fetchLastSeen();
   }, [selectedUser, user]);
 
-  // ✅ listen for online/offline updates
-  useEffect(() => {
+  // ✅ stable online/offline listener (shows exact time like WhatsApp)
+useEffect(() => {
   if (!socket || !selectedUser) return;
 
+  let lastOnlineUpdate = 0;
+
+  // Helper to format last seen as HH:mm
+  const formatLastSeen = (timestamp) => {
+    if (!timestamp) return "";
+    const date = new Date(timestamp);
+    const hours = date.getHours().toString().padStart(2, "0");
+    const minutes = date.getMinutes().toString().padStart(2, "0");
+    return `Last seen ${hours}:${minutes}`;
+  };
+
   const handleUserStatus = ({ userId, status, lastSeen }) => {
-    if (userId === selectedUser._id) {
-      if (status === "online") {
-        setUserLastSeen("online");
-      } else if (lastSeen) {
-        setUserLastSeen(lastSeen);
-      }
+    if (userId !== selectedUser._id) return;
+    const now = Date.now();
+
+    if (status === "online") {
+      lastOnlineUpdate = now;
+      setUserLastSeen("online");
+    } else if (status === "offline" && lastSeen && now - lastOnlineUpdate > 500) {
+      setUserLastSeen(formatLastSeen(lastSeen));
     }
   };
 
   const handleOnlineUsers = (onlineUsers) => {
     if (onlineUsers.includes(selectedUser._id)) {
+      lastOnlineUpdate = Date.now();
       setUserLastSeen("online");
     }
   };
@@ -569,6 +583,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
     socket.off("updateOnlineUsers", handleOnlineUsers);
   };
 }, [socket, selectedUser]);
+
 
   // click outside menus
   useEffect(() => {
