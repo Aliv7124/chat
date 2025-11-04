@@ -543,22 +543,32 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
 
   // ✅ listen for online/offline updates
   useEffect(() => {
-    if (!socket || !selectedUser) return;
+  if (!socket || !selectedUser) return;
 
-    const handleUserStatus = ({ userId, status, lastSeen }) => {
-      if (userId === selectedUser._id) {
-        if (status === "online") {
-          setUserLastSeen("online");
-        } else if (lastSeen) {
-          setUserLastSeen(lastSeen);
-        }
+  const handleUserStatus = ({ userId, status, lastSeen }) => {
+    if (userId === selectedUser._id) {
+      if (status === "online") {
+        setUserLastSeen("online");
+      } else if (lastSeen) {
+        setUserLastSeen(lastSeen);
       }
-    };
+    }
+  };
 
-    socket.on("userStatusChange", handleUserStatus);
+  const handleOnlineUsers = (onlineUsers) => {
+    if (onlineUsers.includes(selectedUser._id)) {
+      setUserLastSeen("online");
+    }
+  };
 
-    return () => socket.off("userStatusChange", handleUserStatus);
-  }, [socket, selectedUser]);
+  socket.on("userStatusChange", handleUserStatus);
+  socket.on("updateOnlineUsers", handleOnlineUsers);
+
+  return () => {
+    socket.off("userStatusChange", handleUserStatus);
+    socket.off("updateOnlineUsers", handleOnlineUsers);
+  };
+}, [socket, selectedUser]);
 
   // click outside menus
   useEffect(() => {
