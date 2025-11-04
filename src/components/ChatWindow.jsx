@@ -715,17 +715,23 @@ useEffect(() => {
         <div className="d-flex align-items-center">
           <h6 className="mb-0 fw-semibold">{selectedUser.name}</h6>
           <small className="ms-2 text-muted">
-            {isTyping
-              ? "Typing..."
-              : userLastSeen === "online"
-              ? "Online"
-              : userLastSeen
-              ? `Last seen ${new Date(userLastSeen).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}`
-              : "Offline"}
-          </small>
+  {isTyping ? (
+    "Typing..."
+  ) : userLastSeen === "online" ? (
+    "Online"
+  ) : userLastSeen ? (
+    userLastSeen.startsWith("Last seen") ? (
+      userLastSeen
+    ) : (
+      `Last seen ${new Date(userLastSeen).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })}`
+    )
+  ) : (
+    "Offline"
+  )}
+</small>
         </div>
       </div>
 

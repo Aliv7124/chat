@@ -22,15 +22,24 @@ const ChatPage = () => {
     if (!user) navigate("/");
   }, [user, navigate]);
 
-  useEffect(() => {
-    if (user) {
-      socket.emit("identify", { userId: user._id });
-      socket.on("userStatusUpdate", (data) =>
-        console.log("User status updated:", data)
-      );
-      return () => socket.off("userStatusUpdate");
-    }
-  }, [user]);
+ // ✅ Real-time online + last seen emitter (instant update)
+useEffect(() => {
+  if (!socket || !user?._id) return;
+
+  const goOnline = () => {
+    socket.emit("userOnline", user._id);
+    console.log("🟢 You are now online");
+  };
+
+  // emit immediately
+  goOnline();
+
+  // re-emit if socket reconnects
+  socket.on("connect", goOnline);
+
+  // clean up listener
+  return () => socket.off("connect", goOnline);
+}, [socket, user?._id]);
 
   const themeStyles = {
     light: {
@@ -180,3 +189,7 @@ const ChatPage = () => {
 };
 
 export default ChatPage;
+
+
+
+
