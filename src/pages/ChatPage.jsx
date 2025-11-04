@@ -101,11 +101,12 @@ const ChatPage = () => {
               {user?.avatar ? (
                 <img
                   src={
-                    user.avatar.startsWith("http")
-                      ? user.avatar
-                      : `${API.defaults.baseURL.replace("/api", "")}${
-                          user.avatar.startsWith("/") ? user.avatar : `/${user.avatar}`
-                        }`
+                   user.avatar.startsWith("http")
+  ? user.avatar
+  : `https://chat-b-7y5f.onrender.com${
+      user.avatar.startsWith("/") ? user.avatar : `/${user.avatar}`
+    }`
+
                   }
                   alt="avatar"
                   className="rounded-circle me-2"

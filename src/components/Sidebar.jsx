@@ -178,7 +178,8 @@ const Sidebar = ({ setSelectedUser }) => {
               {/* ✅ Show avatar if available */}
               {u.avatar ? (
                 <img
-                  src={`http://localhost:5000${u.avatar}`}
+                  src={`https://chat-b-7y5f.onrender.com${u.avatar}`}
+
                   alt={u.name}
                   className="rounded-circle me-3"
                   width="40"
