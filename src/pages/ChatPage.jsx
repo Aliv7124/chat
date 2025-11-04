@@ -1,130 +1,3 @@
-/*
-import React, { useContext, useState, useEffect } from "react";
-import Sidebar from "../components/Sidebar";
-import ChatWindow from "../components/ChatWindow";
-import { AuthContext } from "../context/AuthContext";
-import { useNavigate } from "react-router-dom";
-import io from "socket.io-client";
-import API from "../api"; // ✅ Make sure this path exists
-
-// ✅ Connect socket.io
-const socket = io("http://localhost:5000", {
-  transports: ["websocket"],
-});
-
-const ChatPage = () => {
-  const { user, logout } = useContext(AuthContext);
-  const [selectedUser, setSelectedUser] = useState(null);
-  const navigate = useNavigate();
-
-  // ✅ Redirect if not logged in
-  useEffect(() => {
-    if (!user) navigate("/");
-  }, [user, navigate]);
-
-  // ✅ Identify user on socket connection
-  useEffect(() => {
-    if (user) {
-      socket.emit("identify", { userId: user._id });
-      socket.on("userStatusUpdate", (data) => {
-        console.log("User status updated:", data);
-      });
-      return () => socket.off("userStatusUpdate");
-    }
-  }, [user]);
-
-  return (
-    <>
-     
-      <nav
-        className="navbar navbar-expand-lg shadow-sm"
-        style={{
-          background: "linear-gradient(90deg, #6a11cb 0%, #2575fc 100%)",
-        }}
-      >
-        <div className="container-fluid text-white">
-         
-          <span className="navbar-brand fw-semibold text-white d-flex align-items-center">
-            <i className="bi bi-chat-dots-fill me-2"></i> ChatConnect
-          </span>
-
-         
-          <div className="ms-auto d-flex align-items-center">
-           
-            <span className="me-3 fw-medium d-flex align-items-center">
-              {user?.avatar ? (
-                <img
-                  src={
-                    user.avatar.startsWith("http")
-                      ? user.avatar
-                      : `${API.defaults.baseURL.replace("/api", "")}${user.avatar.startsWith("/") ? user.avatar : `/${user.avatar}`}`
-                  }
-                  alt="avatar"
-                  className="rounded-circle me-2"
-                  style={{
-                    width: "35px",
-                    height: "35px",
-                    objectFit: "cover",
-                    border: "2px solid #fff",
-                  }}
-                />
-              ) : (
-                <i
-                  className="bi bi-person-circle me-2"
-                  style={{ fontSize: "1.8rem", color: "#fff" }}
-                ></i>
-              )}
-              {user?.name || "Guest"}
-            </span>
-
-            
-            <button
-              className="btn btn-outline-light btn-sm rounded-pill px-3"
-              onClick={() => {
-                logout();
-                navigate("/");
-              }}
-            >
-              Logout
-            </button>
-          </div>
-        </div>
-      </nav>
-
-    
-      <div className="container-fluid p-0">
-        <div className="row g-0" style={{ height: "calc(100vh - 56px)" }}>
-         
-          <div
-            className="col-md-3 border-end bg-white shadow-sm"
-            style={{
-              height: "100%",
-              overflowY: "auto",
-            }}
-          >
-            <Sidebar setSelectedUser={setSelectedUser} socket={socket} />
-          </div>
-
-          
-          <div
-            className="col-md-9 d-flex flex-column bg-light"
-            style={{
-              height: "100%",
-              backgroundImage:
-                "linear-gradient(180deg, rgba(240,244,255,1) 0%, rgba(255,255,255,1) 100%)",
-            }}
-          >
-            <ChatWindow user={user} selectedUser={selectedUser} socket={socket} />
-          </div>
-        </div>
-      </div>
-    </>
-  );
-};
-
-export default ChatPage;
-*/
-
 
 import React, { useContext, useState, useEffect } from "react";
 import Sidebar from "../components/Sidebar";
@@ -189,7 +62,7 @@ const ChatPage = () => {
         transition: "all 0.3s ease",
       }}
     >
-      {/* ✅ Navbar */}
+      
       <nav
         className="navbar navbar-expand-lg shadow-sm"
         style={{
@@ -206,7 +79,7 @@ const ChatPage = () => {
           </span>
 
           <div className="ms-auto d-flex align-items-center">
-            {/* ✅ Theme Toggle */}
+          
             <button
               className="btn btn-outline-light rounded-circle me-3"
               onClick={toggleTheme}
@@ -223,7 +96,7 @@ const ChatPage = () => {
               )}
             </button>
 
-            {/* ✅ Avatar + Name */}
+           
             <span className="me-3 fw-medium d-flex align-items-center text-white">
               {user?.avatar ? (
                 <img
@@ -252,7 +125,7 @@ const ChatPage = () => {
               {user?.name || "Guest"}
             </span>
 
-            {/* ✅ Logout Button */}
+           
             <button
               className="btn btn-sm rounded-pill px-3"
               onClick={() => {
@@ -271,7 +144,7 @@ const ChatPage = () => {
         </div>
       </nav>
 
-      {/* ✅ Main Layout */}
+      
       <div className="container-fluid p-0">
         <div className="row g-0" style={{ height: "calc(100vh - 56px)" }}>
           <div
