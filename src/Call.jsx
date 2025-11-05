@@ -14,12 +14,14 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
   const [videoEnabled, setVideoEnabled] = useState(type === "video");
   const [callStartTime, setCallStartTime] = useState(null);
   const [callDuration, setCallDuration] = useState("00:00");
+  const [incomingSignal, setIncomingSignal] = useState(null);
+  const [incomingFrom, setIncomingFrom] = useState(null);
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const peerRef = useRef(null);
 
-  // ---------------- Media ----------------
+  // ---------------- Media Initialization ----------------
   const initMedia = async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -86,69 +88,47 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
     setVideoEnabled(track.enabled);
   };
 
-  // ---------------- Start Outgoing Call ----------------
-  const startOutgoingCall = async () => {
-    if (!socket || !user || !selectedUser || peerRef.current) return;
-
-    const mediaStream = await initMedia();
-    if (!mediaStream) return;
-
-    const newPeer = new SimplePeer({ initiator: true, trickle: false, stream: mediaStream });
-    peerRef.current = newPeer;
-
-    newPeer.on("signal", (signalData) => {
-      socket.emit("callUser", {
-        to: selectedUser._id,
-        from: user._id,
-        signalData,
-        callType: type,
-      });
-    });
-
-    newPeer.on("stream", (remote) => setRemoteStream(remote));
-
-    socket.on("callAccepted", ({ signalData }) => {
-      newPeer.signal(signalData);
-      setCallStatus("inCall");
-      setCallStartTime(Date.now());
-    });
-
-    socket.on("callRejected", cleanup);
-    socket.on("callEnded", cleanup);
-  };
-
+  // ---------------- Outgoing Call ----------------
   useEffect(() => {
-    if (callStatus === "calling") startOutgoingCall();
+    if (!socket || callStatus !== "calling" || peerRef.current) return;
 
-    return () => {
-      socket?.off("callAccepted");
-      socket?.off("callRejected");
-      socket?.off("callEnded");
+    const startCall = async () => {
+      const mediaStream = await initMedia();
+      if (!mediaStream) return;
+
+      const peer = new SimplePeer({ initiator: true, trickle: false, stream: mediaStream });
+      peerRef.current = peer;
+
+      peer.on("signal", (signal) => {
+        socket.emit("callUser", {
+          to: selectedUser._id,
+          from: user._id,
+          signalData: signal,
+          callType: type,
+        });
+      });
+
+      peer.on("stream", (remote) => setRemoteStream(remote));
+
+      socket.once("callAccepted", ({ signalData }) => {
+        peer.signal(signalData);
+        setCallStatus("inCall");
+        setCallStartTime(Date.now());
+      });
+
+      socket.once("callRejected", cleanup);
+      socket.once("callEnded", cleanup);
     };
+
+    startCall();
   }, [socket, callStatus]);
 
-  // ---------------- Handle Incoming Call ----------------
+  // ---------------- Incoming Call ----------------
   const handleIncomingCall = async ({ from, signalData, callType }) => {
-    if (!socket || !user || peerRef.current) return;
-
-    const mediaStream = stream || (await initMedia());
-    if (!mediaStream) return;
-
+    if (peerRef.current) return; // Already in a call
+    setIncomingSignal(signalData);
+    setIncomingFrom(from);
     setCallStatus("incoming");
-
-    const answerPeer = new SimplePeer({ initiator: false, trickle: false, stream: mediaStream });
-    peerRef.current = answerPeer;
-
-    answerPeer.on("signal", (answerSignal) => {
-      socket.emit("acceptCall", { to: from, signalData: answerSignal });
-      setCallStatus("inCall");
-      setCallStartTime(Date.now());
-    });
-
-    answerPeer.on("stream", (remote) => setRemoteStream(remote));
-    answerPeer.signal(signalData);
-
-    socket.on("endCall", cleanup);
   };
 
   useEffect(() => {
@@ -159,7 +139,35 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
       socket?.off("incomingCall", handleIncomingCall);
       socket?.off("callEnded", cleanup);
     };
-  }, [socket, stream, user]);
+  }, [socket]);
+
+  const acceptCall = async () => {
+    if (!incomingSignal || !incomingFrom) return;
+    const mediaStream = stream || (await initMedia());
+    if (!mediaStream) return;
+
+    const peer = new SimplePeer({ initiator: false, trickle: false, stream: mediaStream });
+    peerRef.current = peer;
+
+    peer.on("signal", (answerSignal) => {
+      socket.emit("acceptCall", { to: incomingFrom, signalData: answerSignal });
+      setCallStatus("inCall");
+      setCallStartTime(Date.now());
+    });
+
+    peer.on("stream", (remote) => setRemoteStream(remote));
+    peer.signal(incomingSignal);
+
+    setIncomingSignal(null);
+    setIncomingFrom(null);
+  };
+
+  const rejectCall = () => {
+    if (incomingFrom) {
+      socket.emit("rejectCall", { to: incomingFrom });
+    }
+    cleanup();
+  };
 
   // ---------------- Render ----------------
   return (
@@ -226,9 +234,16 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
             }}
           >
             {remoteStream ? (
-              <video ref={remoteVideoRef} autoPlay playsInline style={{ width: "100%", height: "100%" }} />
+              <video
+                ref={remoteVideoRef}
+                autoPlay
+                playsInline
+                style={{ width: "100%", height: "100%" }}
+              />
             ) : (
-              <p style={{ color: "#fff", textAlign: "center", paddingTop: "50%" }}>Waiting...</p>
+              <p style={{ color: "#fff", textAlign: "center", paddingTop: "50%" }}>
+                Waiting...
+              </p>
             )}
           </div>
 
@@ -242,7 +257,13 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
                 border: "2px solid #fff",
               }}
             >
-              <video ref={localVideoRef} autoPlay muted playsInline style={{ width: "100%", height: "100%" }} />
+              <video
+                ref={localVideoRef}
+                autoPlay
+                muted
+                playsInline
+                style={{ width: "100%", height: "100%" }}
+              />
             </div>
           )}
         </div>
@@ -252,7 +273,9 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
           {callStatus !== "incoming" && (
             <>
               <button onClick={toggleAudio}>{audioEnabled ? "Mute" : "Unmute"}</button>
-              {type === "video" && <button onClick={toggleVideo}>{videoEnabled ? "Video Off" : "Video On"}</button>}
+              {type === "video" && (
+                <button onClick={toggleVideo}>{videoEnabled ? "Video Off" : "Video On"}</button>
+              )}
               <button onClick={endCall} style={{ background: "red", color: "#fff" }}>
                 End Call
               </button>
@@ -260,10 +283,10 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
           )}
           {callStatus === "incoming" && (
             <>
-              <button onClick={() => setCallStatus("inCall")} style={{ background: "green", color: "#fff" }}>
+              <button onClick={acceptCall} style={{ background: "green", color: "#fff" }}>
                 Accept
               </button>
-              <button onClick={endCall} style={{ background: "red", color: "#fff" }}>
+              <button onClick={rejectCall} style={{ background: "red", color: "#fff" }}>
                 Reject
               </button>
             </>

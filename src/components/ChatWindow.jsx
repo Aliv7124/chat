@@ -1310,43 +1310,33 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
   </div>
 
   {/* Call Buttons */}
-  <div className="d-flex align-items-center">
-    {/* Audio Call */}
-    <button
-      className={`btn btn-sm ms-2 d-flex align-items-center justify-content-center ${
-        darkMode ? "btn-dark" : "btn-light"
-      }`}
-      style={{ width: "35px", height: "35px", borderRadius: "50%" }}
-      onClick={() => {
-        setShowAudioCallModal(true);
-        socket.emit("callUser", {
-          to: selectedUser._id,
-          from: user._id,
-          signalData: null,
-        });
-      }}
-    >
-      <i className="bi bi-telephone-fill"></i>
-    </button>
+ <div className="d-flex align-items-center">
+  {/* Audio Call */}
+  <button
+    className={`btn btn-sm ms-2 d-flex align-items-center justify-content-center ${darkMode ? "btn-dark" : "btn-light"}`}
+    style={{ width: "35px", height: "35px", borderRadius: "50%" }}
+    onClick={() => {
+      if (!user || !selectedUser || showAudioCallModal) return; // ✅ Guard
 
-    {/* Video Call */}
-    <button
-      className={`btn btn-sm ms-2 d-flex align-items-center justify-content-center ${
-        darkMode ? "btn-dark" : "btn-light"
-      }`}
-      style={{ width: "35px", height: "35px", borderRadius: "50%" }}
-      onClick={() => {
-        setShowVideoCallModal(true);
-        socket.emit("callUser", {
-          to: selectedUser._id,
-          from: user._id,
-          signalData: null,
-        });
-      }}
-    >
-      <i className="bi bi-camera-video-fill"></i>
-    </button>
-  </div>
+      setShowAudioCallModal(true); // ✅ Open modal only
+    }}
+  >
+    <i className="bi bi-telephone-fill"></i>
+  </button>
+
+  {/* Video Call */}
+  <button
+    className={`btn btn-sm ms-2 d-flex align-items-center justify-content-center ${darkMode ? "btn-dark" : "btn-light"}`}
+    style={{ width: "35px", height: "35px", borderRadius: "50%" }}
+    onClick={() => {
+      if (!user || !selectedUser || showVideoCallModal) return; // ✅ Guard
+
+      setShowVideoCallModal(true); // ✅ Open modal only
+    }}
+  >
+    <i className="bi bi-camera-video-fill"></i>
+  </button>
+</div>
 </div>
 
 
