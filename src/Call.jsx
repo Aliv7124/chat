@@ -1,117 +1,138 @@
-import { Buffer } from "buffer"; // ✅ Needed for SimplePeer in browser
-window.Buffer = Buffer; // ✅ Attach Buffer globally
+import { Buffer } from "buffer"; 
+window.Buffer = Buffer;
+if (typeof global === "undefined") window.global = window;
+window.process = { env: {} };
 
 import React, { useEffect, useRef, useState } from "react";
 import SimplePeer from "simple-peer";
 
-const Call = ({ socket, user, selectedUser, onEndCall }) => {
+const Call = ({ socket, user, selectedUser, type = "video", onEndCall, onClose }) => {
   const [stream, setStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
-  const [callIncoming, setCallIncoming] = useState(false);
-  const [callAccepted, setCallAccepted] = useState(false);
+  const [callStatus, setCallStatus] = useState("idle"); // idle | calling | ringing | inCall
   const [peer, setPeer] = useState(null);
   const [audioEnabled, setAudioEnabled] = useState(true);
-  const [videoEnabled, setVideoEnabled] = useState(true);
-  const [calling, setCalling] = useState(false);
+  const [videoEnabled, setVideoEnabled] = useState(type === "video");
   const [callStartTime, setCallStartTime] = useState(null);
   const [callDuration, setCallDuration] = useState("00:00");
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
 
+  // ---------------- Media Setup ----------------
   useEffect(() => {
     const getMedia = async () => {
       try {
         const mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: true,
           audio: true,
+          video: type === "video",
         });
         setStream(mediaStream);
         if (localVideoRef.current) localVideoRef.current.srcObject = mediaStream;
       } catch (err) {
-        console.error("Error accessing camera/mic:", err);
+        console.error("Error accessing media:", err);
       }
     };
     getMedia();
-  }, []);
+  }, [type]);
 
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
+
+  // ---------------- Call Duration Timer ----------------
+  useEffect(() => {
+    let timer;
+    if (callStatus === "inCall" && callStartTime) {
+      timer = setInterval(() => {
+        const diff = Date.now() - callStartTime;
+        const minutes = String(Math.floor(diff / 60000)).padStart(2, "0");
+        const seconds = String(Math.floor((diff % 60000) / 1000)).padStart(2, "0");
+        setCallDuration(`${minutes}:${seconds}`);
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [callStatus, callStartTime]);
+
+  // ---------------- Socket Listeners ----------------
   useEffect(() => {
     if (!socket) return;
 
-    const handleIncomingCall = ({ from, signalData }) => {
-      if (from === selectedUser._id) {
-        setCallIncoming(true);
-        const p = new SimplePeer({ initiator: false, trickle: false, stream });
-        p.on("signal", (signal) => {
-          socket.emit("acceptCall", { to: from, signalData: signal });
+    socket.on("call-made", ({ from, signal }) => {
+      if (callStatus === "idle") {
+        setCallStatus("ringing");
+
+        const incomingPeer = new SimplePeer({
+          initiator: false,
+          trickle: false,
+          stream,
         });
-        p.on("stream", (remote) => setRemoteStream(remote));
-        p.signal(signalData);
-        setPeer(p);
+
+        incomingPeer.on("signal", (answerSignal) => {
+          socket.emit("make-answer", { to: from, signal: answerSignal });
+        });
+
+        incomingPeer.on("stream", (remoteStream) => {
+          setRemoteStream(remoteStream);
+          setCallStatus("inCall");
+          setCallStartTime(Date.now());
+        });
+
+        incomingPeer.signal(signal);
+        setPeer(incomingPeer);
       }
-    };
-
-    const handleCallAccepted = ({ signalData }) => {
-      peer?.signal(signalData);
-      setCallAccepted(true);
-      setCalling(false);
-      setCallStartTime(Date.now());
-    };
-
-    const handleCallRejected = () => cleanupCall();
-    const handleCallEnded = () => cleanupCall();
-
-    socket.on("incomingCall", handleIncomingCall);
-    socket.on("callAccepted", handleCallAccepted);
-    socket.on("callRejected", handleCallRejected);
-    socket.on("callEnded", handleCallEnded);
-
-    return () => {
-      socket.off("incomingCall", handleIncomingCall);
-      socket.off("callAccepted", handleCallAccepted);
-      socket.off("callRejected", handleCallRejected);
-      socket.off("callEnded", handleCallEnded);
-    };
-  }, [socket, peer, stream, selectedUser]);
-
-  const callUser = () => {
-    if (!selectedUser || !socket || !stream) return;
-    setCalling(true);
-    const p = new SimplePeer({ initiator: true, trickle: false, stream });
-    setPeer(p);
-
-    p.on("signal", (signalData) => {
-      socket.emit("callUser", {
-        to: selectedUser._id,
-        from: user._id,
-        signalData,
-      });
     });
 
-    p.on("stream", (remote) => setRemoteStream(remote));
-  };
+    socket.on("answer-made", ({ signal }) => {
+      peer?.signal(signal);
+      setCallStatus("inCall");
+      setCallStartTime(Date.now());
+    });
 
-  const acceptCall = () => {
-    setCallAccepted(true);
-    setCallIncoming(false);
-    setCallStartTime(Date.now());
+    return () => {
+      socket.off("call-made");
+      socket.off("answer-made");
+    };
+  }, [socket, stream, peer, callStatus]);
+
+  // ---------------- Call Functions ----------------
+  const startCall = () => {
+    if (!stream) return;
+
+    const outgoingPeer = new SimplePeer({
+      initiator: true,
+      trickle: false,
+      stream,
+    });
+
+    outgoingPeer.on("signal", (signal) => {
+      socket.emit("call-user", { to: selectedUser._id, signal });
+    });
+
+    outgoingPeer.on("stream", (remoteStream) => {
+      setRemoteStream(remoteStream);
+      setCallStatus("inCall");
+      setCallStartTime(Date.now());
+    });
+
+    setPeer(outgoingPeer);
+    setCallStatus("calling");
   };
 
   const endCall = () => {
-    if (socket) socket.emit("endCall", { to: selectedUser._id });
-    cleanupCall();
-  };
-
-  const cleanupCall = () => {
     peer?.destroy();
     setPeer(null);
-    setCallAccepted(false);
-    setCallIncoming(false);
-    setCalling(false);
+    if (stream) stream.getTracks().forEach((track) => track.stop());
     setRemoteStream(null);
+    setCallStatus("idle");
     setCallStartTime(null);
     setCallDuration("00:00");
+
+    if (socket && selectedUser) socket.emit("endCall", { to: selectedUser._id });
     if (onEndCall) onEndCall();
+    if (onClose) onClose();
   };
 
   const toggleAudio = () => {
@@ -121,60 +142,63 @@ const Call = ({ socket, user, selectedUser, onEndCall }) => {
   };
 
   const toggleVideo = () => {
-    if (!stream) return;
+    if (!stream || type !== "video") return;
     stream.getVideoTracks()[0].enabled = !videoEnabled;
     setVideoEnabled(!videoEnabled);
   };
 
-  useEffect(() => {
-    let timer;
-    if (callAccepted && callStartTime) {
-      timer = setInterval(() => {
-        const diff = Date.now() - callStartTime;
-        const minutes = String(Math.floor(diff / 60000)).padStart(2, "0");
-        const seconds = String(Math.floor((diff % 60000) / 1000)).padStart(2, "0");
-        setCallDuration(`${minutes}:${seconds}`);
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [callAccepted, callStartTime]);
-
   return (
-    <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.9)", zIndex: 3000, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ position: "relative", width: "80%", height: "70%" }}>
-        {remoteStream ? (
-          <video ref={remoteVideoRef} autoPlay playsInline style={{ width: "100%", height: "100%", borderRadius: "10px" }} srcObject={remoteStream} />
-        ) : callIncoming || calling ? (
-          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "1.2rem", background: "#333", borderRadius: "10px", flexDirection: "column", gap: "10px" }}>
-            {callIncoming ? <p>Incoming Call from {selectedUser.name}</p> : <p>Ringing...</p>}
+    <div style={{
+      position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
+      background: "rgba(0,0,0,0.5)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center"
+    }}>
+      <div style={{
+        width: "600px", maxWidth: "90%", background: "#222", borderRadius: "12px",
+        padding: "10px", display: "flex", flexDirection: "column", gap: "10px"
+      }}>
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ color: "#fff", fontWeight: "bold" }}>
+            {callStatus === "idle" && "Ready"}
+            {callStatus === "calling" && "Calling..."}
+            {callStatus === "ringing" && "Incoming Call"}
+            {callStatus === "inCall" && `In Call: ${callDuration}`}
+          </span>
+          <button onClick={endCall} style={{
+            background: "red", color: "#fff", border: "none", borderRadius: "50%",
+            width: "30px", height: "30px", cursor: "pointer"
+          }}>X</button>
+        </div>
+
+        {/* Video Section */}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px" }}>
+          <div style={{ flex: 1, background: "#000", borderRadius: "8px", overflow: "hidden", position: "relative" }}>
+            {remoteStream ? (
+              <video ref={remoteVideoRef} autoPlay playsInline style={{ width: "100%", height: "100%" }} />
+            ) : (
+              <p style={{ color: "#fff", textAlign: "center", paddingTop: "50%" }}>
+                {callStatus === "ringing" ? "Ringing..." : "Waiting..."}
+              </p>
+            )}
           </div>
-        ) : null}
+          {type === "video" && stream && (
+            <div style={{ width: "150px", height: "150px", borderRadius: "8px", overflow: "hidden", border: "2px solid #fff" }}>
+              <video ref={localVideoRef} autoPlay muted playsInline style={{ width: "100%", height: "100%" }} />
+            </div>
+          )}
+        </div>
 
-        {stream && (
-          <video ref={localVideoRef} autoPlay muted playsInline style={{ width: "150px", height: "150px", position: "absolute", bottom: "10px", right: "10px", borderRadius: "50%", border: "2px solid #fff" }} />
-        )}
-      </div>
-
-      <div style={{ marginTop: "20px", display: "flex", gap: "15px" }}>
-        {callIncoming && !callAccepted && (
-          <>
-            <button className="btn btn-success" onClick={acceptCall}>Accept</button>
-            <button className="btn btn-danger" onClick={endCall}>Reject</button>
-          </>
-        )}
-
-        {!callIncoming && !callAccepted && !calling && (
-          <button className="btn btn-primary" onClick={callUser}>Call</button>
-        )}
-
-        {callAccepted && (
-          <>
-            <button className="btn btn-warning" onClick={toggleAudio}>{audioEnabled ? "Mute" : "Unmute"}</button>
-            <button className="btn btn-warning" onClick={toggleVideo}>{videoEnabled ? "Video Off" : "Video On"}</button>
-            <span style={{ color: "#fff", fontSize: "1rem", margin: "0 10px", alignSelf: "center" }}>{callDuration}</span>
-            <button className="btn btn-danger" onClick={endCall}>End Call</button>
-          </>
-        )}
+        {/* Controls */}
+        <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
+          {callStatus === "idle" && <button onClick={startCall}>Call</button>}
+          {callStatus === "inCall" && (
+            <>
+              <button onClick={toggleAudio}>{audioEnabled ? "Mute" : "Unmute"}</button>
+              {type === "video" && <button onClick={toggleVideo}>{videoEnabled ? "Video Off" : "Video On"}</button>}
+              <button onClick={endCall} style={{ background: "red", color: "#fff" }}>End Call</button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

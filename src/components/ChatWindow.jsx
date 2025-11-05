@@ -1020,11 +1020,13 @@ export default ChatWindow;
 
 */
 
+
+
 import React, { useEffect, useState, useRef } from "react";
 import EmojiPicker from "emoji-picker-react";
 import API from "../api";
 import { useTheme } from "../ThemeContext";
-import Call from "../Call.jsx"; // ✅ Keep your existing Call component
+import Call from "../Call.jsx"; // ✅ Call component should respect type prop
 
 const ChatWindow = ({ user, selectedUser, socket }) => {
   const { darkMode } = useTheme();
@@ -1046,7 +1048,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
   const BASE_URL =
     import.meta.env.VITE_BACKEND_URL || "https://chat-b-7y5f.onrender.com";
 
-  // ------------------- Existing Code -------------------
+  // ------------------- Socket Events -------------------
   useEffect(() => {
     if (socket && user?._id) socket.emit("userOnline", user._id);
   }, [socket, user]);
@@ -1151,6 +1153,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
     };
   }, [socket, selectedUser]);
 
+  // ------------------- Emoji Picker -------------------
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (emojiRef.current && !emojiRef.current.contains(e.target)) {
@@ -1168,6 +1171,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
     }
   }, [messages, selectedUser]);
 
+  // ------------------- Message Handlers -------------------
   const sendMessage = async (formData) => {
     try {
       const res = await API.post("/messages", formData, {
@@ -1277,7 +1281,6 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
       >
         <div className="d-flex flex-column text-center w-100">
           <h6 className="mb-0 fw-semibold">{selectedUser.name}</h6>
-
           {userLastSeen === "online" && (
             <span
               style={{
@@ -1289,7 +1292,6 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
               }}
             />
           )}
-
           <small className="text-muted">
             {isTyping
               ? "Typing..."
@@ -1306,7 +1308,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
           </small>
         </div>
 
-        {/* ✅ Audio Call */}
+        {/* Audio Call */}
         <button
           className={`btn btn-sm ms-2 d-flex align-items-center justify-content-center ${
             darkMode ? "btn-dark" : "btn-light"
@@ -1317,7 +1319,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
           <i className="bi bi-telephone-fill"></i>
         </button>
 
-        {/* ✅ Video Call */}
+        {/* Video Call */}
         <button
           className={`btn btn-sm ms-2 d-flex align-items-center justify-content-center ${
             darkMode ? "btn-dark" : "btn-light"
@@ -1520,6 +1522,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
           type="audio"
           user={user}
           selectedUser={selectedUser}
+          socket={socket}
           onClose={() => setShowAudioCallModal(false)}
         />
       )}
@@ -1529,6 +1532,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
           type="video"
           user={user}
           selectedUser={selectedUser}
+          socket={socket}
           onClose={() => setShowVideoCallModal(false)}
         />
       )}
