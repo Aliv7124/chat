@@ -1082,50 +1082,46 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
   }, [selectedUser, user]);
 
   // ✅ Real-time Online/Offline status
-  useEffect(() => {
-    if (!socket || !selectedUser) return;
+useEffect(() => {
+  if (!socket || !selectedUser) return;
 
-    const formatLastSeen = (timestamp) => {
-      if (!timestamp) return "";
-      const date = new Date(timestamp);
-      const hours = date.getHours().toString().padStart(2, "0");
-      const minutes = date.getMinutes().toString().padStart(2, "0");
-      return `Last seen ${hours}:${minutes}`;
-    };
+  const formatLastSeen = (timestamp) => {
+    if (!timestamp) return "";
+    const date = new Date(timestamp);
+    const hours = date.getHours().toString().padStart(2, "0");
+    const minutes = date.getMinutes().toString().padStart(2, "0");
+    return `Last seen ${hours}:${minutes}`;
+  };
 
-    const handleUserStatus = ({ userId, status, lastSeen }) => {
-      if (userId === selectedUser._id) {
-        if (status === "online") {
-          setUserLastSeen("online");
-        } else if (status === "offline" && lastSeen) {
-          setUserLastSeen(formatLastSeen(lastSeen));
-        }
-      }
-    };
+  const handleUserStatus = ({ userId, status, lastSeen }) => {
+    if (userId === selectedUser._id) {
+      setUserLastSeen(status === "online" ? "online" : formatLastSeen(lastSeen));
+    }
+  };
 
-    const handleOnlineUsers = (onlineUsers) => {
-      if (onlineUsers.includes(selectedUser._id)) {
-        setUserLastSeen("online");
-      } else {
-        setUserLastSeen((prev) =>
-          typeof prev === "string" && prev.startsWith("Last seen")
-            ? prev
-            : "offline"
-        );
-      }
-    };
+  const handleOnlineUsers = (onlineUsers) => {
+    if (onlineUsers.includes(selectedUser._id)) {
+      setUserLastSeen("online");
+    } else {
+      // Keep last seen if we have it
+      setUserLastSeen((prev) =>
+        typeof prev === "string" && prev.startsWith("Last seen") ? prev : "offline"
+      );
+    }
+  };
 
-    socket.on("userStatusChange", handleUserStatus);
-    socket.on("updateOnlineUsers", handleOnlineUsers);
+  socket.on("userStatusChange", handleUserStatus);
+  socket.on("updateOnlineUsers", handleOnlineUsers);
 
-    // ✅ Ask backend for latest online users immediately
-    socket.emit("getOnlineUsers");
+  // Ask backend for current online users instantly
+  socket.emit("getOnlineUsers");
 
-    return () => {
-      socket.off("userStatusChange", handleUserStatus);
-      socket.off("updateOnlineUsers", handleOnlineUsers);
-    };
-  }, [socket, selectedUser]);
+  return () => {
+    socket.off("userStatusChange", handleUserStatus);
+    socket.off("updateOnlineUsers", handleOnlineUsers);
+  };
+}, [socket, selectedUser]);
+
 
   // ✅ Close emoji picker when clicked outside
   useEffect(() => {
