@@ -20,13 +20,13 @@ export default defineConfig({
   optimizeDeps: {
     esbuildOptions: {
       define: {
-        global: "globalThis",        // ✅ Polyfill global
-        "process.env": "{}",          // ✅ Minimal process.env
+        global: "globalThis",
+        "process.env": "{}",
       },
       plugins: [
         NodeGlobalsPolyfillPlugin({
-          buffer: true,              // ✅ Polyfill Buffer
-          process: true,             // ✅ Polyfill process
+          buffer: true,
+          process: true,
         }),
         NodeModulesPolyfillPlugin(),
       ],
@@ -34,11 +34,11 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      buffer: "buffer/",
+      process: "process/browser",
+      global: "rollup-plugin-node-polyfills/polyfills/global", 
       util: "rollup-plugin-node-polyfills/polyfills/util",
       stream: "rollup-plugin-node-polyfills/polyfills/stream",
-      buffer: "rollup-plugin-node-polyfills/polyfills/buffer-es6",
-      process: "rollup-plugin-node-polyfills/polyfills/process-es6",
-      global: "rollup-plugin-node-polyfills/polyfills/global", // ✅ Ensure global polyfill
     },
   },
 });
