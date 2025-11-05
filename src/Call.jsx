@@ -1,6 +1,5 @@
-import { Buffer } from "buffer";
-import { globalThis as global } from "global";
-window.Buffer = Buffer;
+import { Buffer } from "buffer"; // ✅ Needed for SimplePeer in browser
+window.Buffer = Buffer; // ✅ Attach Buffer globally
 
 import React, { useEffect, useRef, useState } from "react";
 import SimplePeer from "simple-peer";
@@ -20,7 +19,6 @@ const Call = ({ socket, user, selectedUser, onEndCall }) => {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
 
-  // ✅ Get local media stream
   useEffect(() => {
     const getMedia = async () => {
       try {
@@ -37,7 +35,6 @@ const Call = ({ socket, user, selectedUser, onEndCall }) => {
     getMedia();
   }, []);
 
-  // ✅ Listen for incoming calls (only if socket exists)
   useEffect(() => {
     if (!socket) return;
 
@@ -61,14 +58,8 @@ const Call = ({ socket, user, selectedUser, onEndCall }) => {
       setCallStartTime(Date.now());
     };
 
-    const handleCallRejected = () => {
-      alert("Call rejected by user");
-      cleanupCall();
-    };
-
-    const handleCallEnded = () => {
-      cleanupCall();
-    };
+    const handleCallRejected = () => cleanupCall();
+    const handleCallEnded = () => cleanupCall();
 
     socket.on("incomingCall", handleIncomingCall);
     socket.on("callAccepted", handleCallAccepted);
@@ -149,112 +140,39 @@ const Call = ({ socket, user, selectedUser, onEndCall }) => {
   }, [callAccepted, callStartTime]);
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        width: "100vw",
-        height: "100vh",
-        background: "rgba(0,0,0,0.9)",
-        zIndex: 3000,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
+    <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.9)", zIndex: 3000, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
       <div style={{ position: "relative", width: "80%", height: "70%" }}>
         {remoteStream ? (
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            style={{ width: "100%", height: "100%", borderRadius: "10px" }}
-            srcObject={remoteStream}
-          />
+          <video ref={remoteVideoRef} autoPlay playsInline style={{ width: "100%", height: "100%", borderRadius: "10px" }} srcObject={remoteStream} />
         ) : callIncoming || calling ? (
-          <div
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#fff",
-              fontSize: "1.2rem",
-              background: "#333",
-              borderRadius: "10px",
-              flexDirection: "column",
-              gap: "10px",
-            }}
-          >
-            {callIncoming ? (
-              <p>Incoming Call from {selectedUser.name}</p>
-            ) : (
-              <p>Ringing...</p>
-            )}
+          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "1.2rem", background: "#333", borderRadius: "10px", flexDirection: "column", gap: "10px" }}>
+            {callIncoming ? <p>Incoming Call from {selectedUser.name}</p> : <p>Ringing...</p>}
           </div>
         ) : null}
 
         {stream && (
-          <video
-            ref={localVideoRef}
-            autoPlay
-            muted
-            playsInline
-            style={{
-              width: "150px",
-              height: "150px",
-              position: "absolute",
-              bottom: "10px",
-              right: "10px",
-              borderRadius: "50%",
-              border: "2px solid #fff",
-            }}
-          />
+          <video ref={localVideoRef} autoPlay muted playsInline style={{ width: "150px", height: "150px", position: "absolute", bottom: "10px", right: "10px", borderRadius: "50%", border: "2px solid #fff" }} />
         )}
       </div>
 
       <div style={{ marginTop: "20px", display: "flex", gap: "15px" }}>
         {callIncoming && !callAccepted && (
           <>
-            <button className="btn btn-success" onClick={acceptCall}>
-              Accept
-            </button>
-            <button className="btn btn-danger" onClick={endCall}>
-              Reject
-            </button>
+            <button className="btn btn-success" onClick={acceptCall}>Accept</button>
+            <button className="btn btn-danger" onClick={endCall}>Reject</button>
           </>
         )}
 
         {!callIncoming && !callAccepted && !calling && (
-          <button className="btn btn-primary" onClick={callUser}>
-            Call
-          </button>
+          <button className="btn btn-primary" onClick={callUser}>Call</button>
         )}
 
         {callAccepted && (
           <>
-            <button className="btn btn-warning" onClick={toggleAudio}>
-              {audioEnabled ? "Mute" : "Unmute"}
-            </button>
-            <button className="btn btn-warning" onClick={toggleVideo}>
-              {videoEnabled ? "Video Off" : "Video On"}
-            </button>
-            <span
-              style={{
-                color: "#fff",
-                fontSize: "1rem",
-                margin: "0 10px",
-                alignSelf: "center",
-              }}
-            >
-              {callDuration}
-            </span>
-            <button className="btn btn-danger" onClick={endCall}>
-              End Call
-            </button>
+            <button className="btn btn-warning" onClick={toggleAudio}>{audioEnabled ? "Mute" : "Unmute"}</button>
+            <button className="btn btn-warning" onClick={toggleVideo}>{videoEnabled ? "Video Off" : "Video On"}</button>
+            <span style={{ color: "#fff", fontSize: "1rem", margin: "0 10px", alignSelf: "center" }}>{callDuration}</span>
+            <button className="btn btn-danger" onClick={endCall}>End Call</button>
           </>
         )}
       </div>
