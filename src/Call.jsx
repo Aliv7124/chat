@@ -90,7 +90,8 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
 
   // ---------------- Outgoing Call ----------------
   useEffect(() => {
-    if (!socket || callStatus !== "calling" || peerRef.current) return;
+    if (!socket || !selectedUser || !user || callStatus !== "calling" || peerRef.current)
+      return;
 
     const startCall = async () => {
       const mediaStream = await initMedia();
@@ -100,6 +101,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
       peerRef.current = peer;
 
       peer.on("signal", (signal) => {
+        if (!socket || !selectedUser?._id || !user?._id) return;
         socket.emit("callUser", {
           to: selectedUser._id,
           from: user._id,
@@ -111,7 +113,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
       peer.on("stream", (remote) => setRemoteStream(remote));
 
       socket.once("callAccepted", ({ signalData }) => {
-        peer.signal(signalData);
+        if (peer) peer.signal(signalData);
         setCallStatus("inCall");
         setCallStartTime(Date.now());
       });
@@ -121,11 +123,11 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
     };
 
     startCall();
-  }, [socket, callStatus]);
+  }, [socket, callStatus, selectedUser, user, type]);
 
   // ---------------- Incoming Call ----------------
   const handleIncomingCall = async ({ from, signalData, callType }) => {
-    if (peerRef.current) return; // Already in a call
+    if (!from || !signalData || peerRef.current) return;
     setIncomingSignal(signalData);
     setIncomingFrom(from);
     setCallStatus("incoming");
@@ -150,6 +152,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
     peerRef.current = peer;
 
     peer.on("signal", (answerSignal) => {
+      if (!socket) return;
       socket.emit("acceptCall", { to: incomingFrom, signalData: answerSignal });
       setCallStatus("inCall");
       setCallStartTime(Date.now());
@@ -234,16 +237,9 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
             }}
           >
             {remoteStream ? (
-              <video
-                ref={remoteVideoRef}
-                autoPlay
-                playsInline
-                style={{ width: "100%", height: "100%" }}
-              />
+              <video ref={remoteVideoRef} autoPlay playsInline style={{ width: "100%", height: "100%" }} />
             ) : (
-              <p style={{ color: "#fff", textAlign: "center", paddingTop: "50%" }}>
-                Waiting...
-              </p>
+              <p style={{ color: "#fff", textAlign: "center", paddingTop: "50%" }}>Waiting...</p>
             )}
           </div>
 
@@ -257,13 +253,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
                 border: "2px solid #fff",
               }}
             >
-              <video
-                ref={localVideoRef}
-                autoPlay
-                muted
-                playsInline
-                style={{ width: "100%", height: "100%" }}
-              />
+              <video ref={localVideoRef} autoPlay muted playsInline style={{ width: "100%", height: "100%" }} />
             </div>
           )}
         </div>
@@ -273,9 +263,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
           {callStatus !== "incoming" && (
             <>
               <button onClick={toggleAudio}>{audioEnabled ? "Mute" : "Unmute"}</button>
-              {type === "video" && (
-                <button onClick={toggleVideo}>{videoEnabled ? "Video Off" : "Video On"}</button>
-              )}
+              {type === "video" && <button onClick={toggleVideo}>{videoEnabled ? "Video Off" : "Video On"}</button>}
               <button onClick={endCall} style={{ background: "red", color: "#fff" }}>
                 End Call
               </button>
