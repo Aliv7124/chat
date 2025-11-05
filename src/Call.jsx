@@ -1,4 +1,4 @@
-import { Buffer } from "buffer"; 
+import { Buffer } from "buffer";
 window.Buffer = Buffer;
 if (typeof global === "undefined") window.global = window;
 window.process = { env: {} };
@@ -6,11 +6,11 @@ window.process = { env: {} };
 import React, { useEffect, useRef, useState } from "react";
 import SimplePeer from "simple-peer";
 
-const Call = ({ socket, user, selectedUser, type = "video", onEndCall, onClose }) => {
+const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
   const [stream, setStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
-  const [callStatus, setCallStatus] = useState("idle"); // idle | calling | ringing | inCall
   const [peer, setPeer] = useState(null);
+  const [callStatus, setCallStatus] = useState("calling"); // 'calling' | 'incoming' | 'inCall'
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(type === "video");
   const [callStartTime, setCallStartTime] = useState(null);
@@ -19,9 +19,8 @@ const Call = ({ socket, user, selectedUser, type = "video", onEndCall, onClose }
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
 
-  // ---------------- Media Setup ----------------
   useEffect(() => {
-    const getMedia = async () => {
+    const initMedia = async () => {
       try {
         const mediaStream = await navigator.mediaDevices.getUserMedia({
           audio: true,
@@ -30,10 +29,10 @@ const Call = ({ socket, user, selectedUser, type = "video", onEndCall, onClose }
         setStream(mediaStream);
         if (localVideoRef.current) localVideoRef.current.srcObject = mediaStream;
       } catch (err) {
-        console.error("Error accessing media:", err);
+        console.error(err);
       }
     };
-    getMedia();
+    initMedia();
   }, [type]);
 
   useEffect(() => {
@@ -42,7 +41,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onEndCall, onClose }
     }
   }, [remoteStream]);
 
-  // ---------------- Call Duration Timer ----------------
+  // Call duration timer
   useEffect(() => {
     let timer;
     if (callStatus === "inCall" && callStartTime) {
@@ -56,83 +55,17 @@ const Call = ({ socket, user, selectedUser, type = "video", onEndCall, onClose }
     return () => clearInterval(timer);
   }, [callStatus, callStartTime]);
 
-  // ---------------- Socket Listeners ----------------
-  useEffect(() => {
-    if (!socket) return;
-
-    socket.on("call-made", ({ from, signal }) => {
-      if (callStatus === "idle") {
-        setCallStatus("ringing");
-
-        const incomingPeer = new SimplePeer({
-          initiator: false,
-          trickle: false,
-          stream,
-        });
-
-        incomingPeer.on("signal", (answerSignal) => {
-          socket.emit("make-answer", { to: from, signal: answerSignal });
-        });
-
-        incomingPeer.on("stream", (remoteStream) => {
-          setRemoteStream(remoteStream);
-          setCallStatus("inCall");
-          setCallStartTime(Date.now());
-        });
-
-        incomingPeer.signal(signal);
-        setPeer(incomingPeer);
-      }
-    });
-
-    socket.on("answer-made", ({ signal }) => {
-      peer?.signal(signal);
-      setCallStatus("inCall");
-      setCallStartTime(Date.now());
-    });
-
-    return () => {
-      socket.off("call-made");
-      socket.off("answer-made");
-    };
-  }, [socket, stream, peer, callStatus]);
-
-  // ---------------- Call Functions ----------------
-  const startCall = () => {
-    if (!stream) return;
-
-    const outgoingPeer = new SimplePeer({
-      initiator: true,
-      trickle: false,
-      stream,
-    });
-
-    outgoingPeer.on("signal", (signal) => {
-      socket.emit("call-user", { to: selectedUser._id, signal });
-    });
-
-    outgoingPeer.on("stream", (remoteStream) => {
-      setRemoteStream(remoteStream);
-      setCallStatus("inCall");
-      setCallStartTime(Date.now());
-    });
-
-    setPeer(outgoingPeer);
-    setCallStatus("calling");
+  const cleanup = () => {
+    peer?.destroy();
+    stream?.getTracks().forEach((t) => t.stop());
+    setPeer(null);
+    setRemoteStream(null);
+    if (onClose) onClose();
   };
 
   const endCall = () => {
-    peer?.destroy();
-    setPeer(null);
-    if (stream) stream.getTracks().forEach((track) => track.stop());
-    setRemoteStream(null);
-    setCallStatus("idle");
-    setCallStartTime(null);
-    setCallDuration("00:00");
-
-    if (socket && selectedUser) socket.emit("endCall", { to: selectedUser._id });
-    if (onEndCall) onEndCall();
-    if (onClose) onClose();
+    socket.emit("endCall", { to: selectedUser._id });
+    cleanup();
   };
 
   const toggleAudio = () => {
@@ -147,55 +80,212 @@ const Call = ({ socket, user, selectedUser, type = "video", onEndCall, onClose }
     setVideoEnabled(!videoEnabled);
   };
 
+  // ---------------- Call Logic ----------------
+
+  // Caller: initiate call
+  useEffect(() => {
+    if (!socket || !stream) return;
+    if (callStatus !== "calling") return;
+
+    const caller = new SimplePeer({ initiator: true, trickle: false, stream });
+    setPeer(caller);
+
+    caller.on("signal", (signalData) => {
+      socket.emit("callUser", {
+        to: selectedUser._id,
+        from: user._id,
+        signalData,
+      });
+    });
+
+    caller.on("stream", (remote) => setRemoteStream(remote));
+
+    // Listen for call accepted
+    socket.on("callAccepted", ({ signalData }) => {
+      caller.signal(signalData);
+      setCallStatus("inCall");
+      setCallStartTime(Date.now());
+    });
+
+    // Listen for call rejected or ended
+    socket.on("callRejected", cleanup);
+    socket.on("callEnded", cleanup);
+
+    return () => {
+      socket.off("callAccepted");
+      socket.off("callRejected");
+      socket.off("callEnded");
+    };
+  }, [socket, stream]);
+
+  // Receiver: incoming call
+  useEffect(() => {
+    if (!socket || !stream) return;
+
+    const handleIncoming = ({ from, signalData }) => {
+      setCallStatus("incoming");
+
+      const answerPeer = new SimplePeer({ initiator: false, trickle: false, stream });
+      setPeer(answerPeer);
+
+      answerPeer.on("signal", (answerSignal) => {
+        socket.emit("acceptCall", { to: from, signalData: answerSignal });
+      });
+
+      answerPeer.on("stream", (remote) => setRemoteStream(remote));
+
+      answerPeer.signal(signalData);
+
+      // Listen for call end
+      socket.on("endCall", cleanup);
+    };
+
+    socket.on("incomingCall", handleIncoming);
+    socket.on("callEnded", cleanup);
+
+    return () => {
+      socket.off("incomingCall", handleIncoming);
+      socket.off("callEnded", cleanup);
+    };
+  }, [socket, stream]);
+
   return (
-    <div style={{
-      position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
-      background: "rgba(0,0,0,0.5)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center"
-    }}>
-      <div style={{
-        width: "600px", maxWidth: "90%", background: "#222", borderRadius: "12px",
-        padding: "10px", display: "flex", flexDirection: "column", gap: "10px"
-      }}>
-        {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: "100vw",
+        height: "100vh",
+        background: "rgba(0,0,0,0.5)",
+        zIndex: 3000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <div
+        style={{
+          width: "600px",
+          maxWidth: "90%",
+          background: "#222",
+          borderRadius: "12px",
+          padding: "10px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "10px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
           <span style={{ color: "#fff", fontWeight: "bold" }}>
-            {callStatus === "idle" && "Ready"}
-            {callStatus === "calling" && "Calling..."}
-            {callStatus === "ringing" && "Incoming Call"}
-            {callStatus === "inCall" && `In Call: ${callDuration}`}
+            {callStatus === "incoming"
+              ? "Incoming Call..."
+              : callStatus === "calling"
+              ? "Calling..."
+              : `In Call: ${callDuration}`}
           </span>
-          <button onClick={endCall} style={{
-            background: "red", color: "#fff", border: "none", borderRadius: "50%",
-            width: "30px", height: "30px", cursor: "pointer"
-          }}>X</button>
+          <button
+            onClick={endCall}
+            style={{
+              background: "red",
+              color: "#fff",
+              border: "none",
+              borderRadius: "50%",
+              width: "30px",
+              height: "30px",
+              cursor: "pointer",
+            }}
+          >
+            X
+          </button>
         </div>
 
-        {/* Video Section */}
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px" }}>
-          <div style={{ flex: 1, background: "#000", borderRadius: "8px", overflow: "hidden", position: "relative" }}>
+        <div style={{ display: "flex", gap: "10px" }}>
+          <div
+            style={{
+              flex: 1,
+              background: "#000",
+              borderRadius: "8px",
+              overflow: "hidden",
+              position: "relative",
+            }}
+          >
             {remoteStream ? (
-              <video ref={remoteVideoRef} autoPlay playsInline style={{ width: "100%", height: "100%" }} />
+              <video
+                ref={remoteVideoRef}
+                autoPlay
+                playsInline
+                style={{ width: "100%", height: "100%" }}
+              />
             ) : (
-              <p style={{ color: "#fff", textAlign: "center", paddingTop: "50%" }}>
-                {callStatus === "ringing" ? "Ringing..." : "Waiting..."}
+              <p
+                style={{
+                  color: "#fff",
+                  textAlign: "center",
+                  paddingTop: "50%",
+                }}
+              >
+                Waiting...
               </p>
             )}
           </div>
           {type === "video" && stream && (
-            <div style={{ width: "150px", height: "150px", borderRadius: "8px", overflow: "hidden", border: "2px solid #fff" }}>
-              <video ref={localVideoRef} autoPlay muted playsInline style={{ width: "100%", height: "100%" }} />
+            <div
+              style={{
+                width: "150px",
+                height: "150px",
+                borderRadius: "8px",
+                overflow: "hidden",
+                border: "2px solid #fff",
+              }}
+            >
+              <video
+                ref={localVideoRef}
+                autoPlay
+                muted
+                playsInline
+                style={{ width: "100%", height: "100%" }}
+              />
             </div>
           )}
         </div>
 
-        {/* Controls */}
         <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
-          {callStatus === "idle" && <button onClick={startCall}>Call</button>}
-          {callStatus === "inCall" && (
+          {callStatus !== "incoming" && (
             <>
-              <button onClick={toggleAudio}>{audioEnabled ? "Mute" : "Unmute"}</button>
-              {type === "video" && <button onClick={toggleVideo}>{videoEnabled ? "Video Off" : "Video On"}</button>}
-              <button onClick={endCall} style={{ background: "red", color: "#fff" }}>End Call</button>
+              <button onClick={toggleAudio}>
+                {audioEnabled ? "Mute" : "Unmute"}
+              </button>
+              {type === "video" && (
+                <button onClick={toggleVideo}>
+                  {videoEnabled ? "Video Off" : "Video On"}
+                </button>
+              )}
+              <button onClick={endCall} style={{ background: "red", color: "#fff" }}>
+                End Call
+              </button>
+            </>
+          )}
+          {callStatus === "incoming" && (
+            <>
+              <button
+                onClick={() => setCallStatus("inCall")}
+                style={{ background: "green", color: "#fff" }}
+              >
+                Accept
+              </button>
+              <button
+                onClick={endCall}
+                style={{ background: "red", color: "#fff" }}
+              >
+                Reject
+              </button>
             </>
           )}
         </div>

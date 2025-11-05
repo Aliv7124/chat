@@ -1272,64 +1272,83 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
       style={{ height: "100dvh", overflow: "hidden", display: "flex", flexDirection: "column" }}
       className={darkMode ? "bg-dark text-light" : "bg-light text-dark"}
     >
-      {/* ------------------- Header with Call Buttons ------------------- */}
-      <div
-        className={`d-flex align-items-center justify-content-between border-bottom px-3 py-2 ${
-          darkMode ? "bg-secondary text-light" : "bg-light text-dark"
-        }`}
-        style={{ position: "sticky", top: 0, zIndex: 20, minHeight: "60px" }}
-      >
-        <div className="d-flex flex-column text-center w-100">
-          <h6 className="mb-0 fw-semibold">{selectedUser.name}</h6>
-          {userLastSeen === "online" && (
-            <span
-              style={{
-                width: "10px",
-                height: "10px",
-                backgroundColor: "limegreen",
-                borderRadius: "50%",
-                display: "inline-block",
-              }}
-            />
-          )}
-          <small className="text-muted">
-            {isTyping
-              ? "Typing..."
-              : userLastSeen === "online"
-              ? "Online"
-              : userLastSeen
-              ? userLastSeen.startsWith("Last seen")
-                ? userLastSeen
-                : `Last seen ${new Date(userLastSeen).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}`
-              : "Offline"}
-          </small>
-        </div>
+    {/* ------------------- Header with Call Buttons ------------------- */}
+<div
+  className={`d-flex align-items-center justify-content-between border-bottom px-3 py-2 ${
+    darkMode ? "bg-secondary text-light" : "bg-light text-dark"
+  }`}
+  style={{ position: "sticky", top: 0, zIndex: 20, minHeight: "60px" }}
+>
+  {/* User Info */}
+  <div className="d-flex flex-column text-center">
+    <h6 className="mb-0 fw-semibold">{selectedUser.name}</h6>
+    {userLastSeen === "online" && (
+      <span
+        style={{
+          width: "10px",
+          height: "10px",
+          backgroundColor: "limegreen",
+          borderRadius: "50%",
+          display: "inline-block",
+        }}
+      />
+    )}
+    <small className="text-muted">
+      {isTyping
+        ? "Typing..."
+        : userLastSeen === "online"
+        ? "Online"
+        : userLastSeen
+        ? userLastSeen.startsWith("Last seen")
+          ? userLastSeen
+          : `Last seen ${new Date(userLastSeen).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}`
+        : "Offline"}
+    </small>
+  </div>
 
-        {/* Audio Call */}
-        <button
-          className={`btn btn-sm ms-2 d-flex align-items-center justify-content-center ${
-            darkMode ? "btn-dark" : "btn-light"
-          }`}
-          style={{ width: "35px", height: "35px", borderRadius: "50%" }}
-          onClick={() => setShowAudioCallModal(true)}
-        >
-          <i className="bi bi-telephone-fill"></i>
-        </button>
+  {/* Call Buttons */}
+  <div className="d-flex align-items-center">
+    {/* Audio Call */}
+    <button
+      className={`btn btn-sm ms-2 d-flex align-items-center justify-content-center ${
+        darkMode ? "btn-dark" : "btn-light"
+      }`}
+      style={{ width: "35px", height: "35px", borderRadius: "50%" }}
+      onClick={() => {
+        setShowAudioCallModal(true);
+        socket.emit("callUser", {
+          to: selectedUser._id,
+          from: user._id,
+          signalData: null,
+        });
+      }}
+    >
+      <i className="bi bi-telephone-fill"></i>
+    </button>
 
-        {/* Video Call */}
-        <button
-          className={`btn btn-sm ms-2 d-flex align-items-center justify-content-center ${
-            darkMode ? "btn-dark" : "btn-light"
-          }`}
-          style={{ width: "35px", height: "35px", borderRadius: "50%" }}
-          onClick={() => setShowVideoCallModal(true)}
-        >
-          <i className="bi bi-camera-video-fill"></i>
-        </button>
-      </div>
+    {/* Video Call */}
+    <button
+      className={`btn btn-sm ms-2 d-flex align-items-center justify-content-center ${
+        darkMode ? "btn-dark" : "btn-light"
+      }`}
+      style={{ width: "35px", height: "35px", borderRadius: "50%" }}
+      onClick={() => {
+        setShowVideoCallModal(true);
+        socket.emit("callUser", {
+          to: selectedUser._id,
+          from: user._id,
+          signalData: null,
+        });
+      }}
+    >
+      <i className="bi bi-camera-video-fill"></i>
+    </button>
+  </div>
+</div>
+
 
       {/* ------------------- Messages ------------------- */}
       <div
