@@ -1007,15 +1007,20 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
   const BASE_URL =
     import.meta.env.VITE_BACKEND_URL || "https://chat-b-7y5f.onrender.com";
 
+  // ✅ Notify backend user is online
   useEffect(() => {
-    if (socket && user) socket.emit("userOnline", user._id);
+    if (socket && user?._id) {
+      socket.emit("userOnline", user._id);
+    }
   }, [socket, user]);
 
+  // ✅ Join private room
   useEffect(() => {
     if (!socket || !selectedUser) return;
     socket.emit("joinRoom", { userId: user._id, receiverId: selectedUser._id });
   }, [socket, user, selectedUser]);
 
+  // ✅ Typing indicators
   useEffect(() => {
     if (!socket) return;
     socket.on("typing", () => setIsTyping(true));
@@ -1026,8 +1031,10 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
     };
   }, [socket]);
 
+  // ✅ Receive messages in real time
   useEffect(() => {
     if (!socket || !selectedUser) return;
+
     const handleReceive = (message) => {
       const isForThisChat =
         (message.sender === selectedUser._id && message.receiver === user._id) ||
@@ -1039,10 +1046,12 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
         });
       }
     };
+
     socket.on("receiveMessage", handleReceive);
     return () => socket.off("receiveMessage", handleReceive);
   }, [socket, selectedUser?._id, user?._id]);
 
+  // ✅ Fetch chat history & last seen
   useEffect(() => {
     const fetchMessages = async () => {
       if (!selectedUser) return;
@@ -1072,7 +1081,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
     fetchLastSeen();
   }, [selectedUser, user]);
 
-  // ✅ Fixed: Instant Online/Offline Status Update
+  // ✅ Real-time Online/Offline status
   useEffect(() => {
     if (!socket || !selectedUser) return;
 
@@ -1088,7 +1097,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
       if (userId === selectedUser._id) {
         if (status === "online") {
           setUserLastSeen("online");
-        } else if (status === "offline") {
+        } else if (status === "offline" && lastSeen) {
           setUserLastSeen(formatLastSeen(lastSeen));
         }
       }
@@ -1099,7 +1108,9 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
         setUserLastSeen("online");
       } else {
         setUserLastSeen((prev) =>
-          prev === "online" ? formatLastSeen(new Date()) : prev
+          typeof prev === "string" && prev.startsWith("Last seen")
+            ? prev
+            : "offline"
         );
       }
     };
@@ -1107,8 +1118,8 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
     socket.on("userStatusChange", handleUserStatus);
     socket.on("updateOnlineUsers", handleOnlineUsers);
 
-    // ✅ Request current online users immediately
-    socket.emit("requestOnlineUsers");
+    // ✅ Ask backend for latest online users immediately
+    socket.emit("getOnlineUsers");
 
     return () => {
       socket.off("userStatusChange", handleUserStatus);
@@ -1116,6 +1127,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
     };
   }, [socket, selectedUser]);
 
+  // ✅ Close emoji picker when clicked outside
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (emojiRef.current && !emojiRef.current.contains(e.target)) {
@@ -1127,6 +1139,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // ✅ Auto scroll to bottom
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "instant" });
@@ -1281,6 +1294,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
         </div>
       </div>
 
+      {/* Messages */}
       <div
         className="flex-grow-1 p-3 overflow-auto"
         style={{
@@ -1314,6 +1328,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
                 }`}
                 style={{ maxWidth: "70%" }}
               >
+                {/* Menu */}
                 {msg.sender === user._id && (
                   <div
                     className="position-absolute"
@@ -1357,6 +1372,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
                   </div>
                 )}
 
+                {/* Message type handling */}
                 {msg.fileType === "image" ? (
                   <img
                     src={`${BASE_URL}${msg.fileUrl}`}
@@ -1395,6 +1411,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Emoji Picker */}
       {showEmojiPicker && (
         <div
           ref={emojiRef}
@@ -1427,6 +1444,7 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
         </div>
       )}
 
+      {/* Message Input */}
       <form
         onSubmit={handleSend}
         className={`p-3 border-top d-flex align-items-center position-relative ${
