@@ -10,7 +10,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
   const [stream, setStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
   const [peer, setPeer] = useState(null);
-  const [callStatus, setCallStatus] = useState("calling"); // 'calling' | 'incoming' | 'inCall'
+  const [callStatus, setCallStatus] = useState("calling"); // calling | incoming | inCall
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(type === "video");
   const [callStartTime, setCallStartTime] = useState(null);
@@ -19,21 +19,22 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
 
-  useEffect(() => {
-    const initMedia = async () => {
-      try {
-        const mediaStream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: type === "video",
-        });
-        setStream(mediaStream);
-        if (localVideoRef.current) localVideoRef.current.srcObject = mediaStream;
-      } catch (err) {
-        console.error(err);
-      }
-    };
-    initMedia();
-  }, [type]);
+  // ---------------- Media ----------------
+  const initMedia = async () => {
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: type === "video",
+      });
+      setStream(mediaStream);
+      if (localVideoRef.current) localVideoRef.current.srcObject = mediaStream;
+      return mediaStream;
+    } catch (err) {
+      console.error("Failed to get media:", err);
+      cleanup();
+      return null;
+    }
+  };
 
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
@@ -41,7 +42,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
     }
   }, [remoteStream]);
 
-  // Call duration timer
+  // ---------------- Call Timer ----------------
   useEffect(() => {
     let timer;
     if (callStatus === "inCall" && callStartTime) {
@@ -55,6 +56,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
     return () => clearInterval(timer);
   }, [callStatus, callStartTime]);
 
+  // ---------------- Cleanup ----------------
   const cleanup = () => {
     peer?.destroy();
     stream?.getTracks().forEach((t) => t.stop());
@@ -70,62 +72,70 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
 
   const toggleAudio = () => {
     if (!stream) return;
-    stream.getAudioTracks()[0].enabled = !audioEnabled;
-    setAudioEnabled(!audioEnabled);
+    const track = stream.getAudioTracks()[0];
+    track.enabled = !track.enabled;
+    setAudioEnabled(track.enabled);
   };
 
   const toggleVideo = () => {
     if (!stream || type !== "video") return;
-    stream.getVideoTracks()[0].enabled = !videoEnabled;
-    setVideoEnabled(!videoEnabled);
+    const track = stream.getVideoTracks()[0];
+    track.enabled = !track.enabled;
+    setVideoEnabled(track.enabled);
   };
 
-  // ---------------- Call Logic ----------------
-
-  // Caller: initiate call
+  // ---------------- Outgoing Call ----------------
   useEffect(() => {
-    if (!socket || !stream) return;
-    if (callStatus !== "calling") return;
+    const startOutgoing = async () => {
+      if (!socket || !user || !selectedUser) return;
+      const mediaStream = await initMedia();
+      if (!mediaStream) return;
 
-    const caller = new SimplePeer({ initiator: true, trickle: false, stream });
-    setPeer(caller);
+      if (callStatus !== "calling") return;
 
-    caller.on("signal", (signalData) => {
-      socket.emit("callUser", {
-        to: selectedUser._id,
-        from: user._id,
-        signalData,
+      const caller = new SimplePeer({ initiator: true, trickle: false, stream: mediaStream });
+      setPeer(caller);
+
+      caller.on("signal", (signalData) => {
+        socket.emit("callUser", {
+          to: selectedUser._id,
+          from: user._id,
+          signalData,
+        });
       });
-    });
 
-    caller.on("stream", (remote) => setRemoteStream(remote));
+      caller.on("stream", (remote) => setRemoteStream(remote));
 
-    // Listen for call accepted
-    socket.on("callAccepted", ({ signalData }) => {
-      caller.signal(signalData);
-      setCallStatus("inCall");
-      setCallStartTime(Date.now());
-    });
+      socket.on("callAccepted", ({ signalData }) => {
+        caller.signal(signalData);
+        setCallStatus("inCall");
+        setCallStartTime(Date.now());
+      });
 
-    // Listen for call rejected or ended
-    socket.on("callRejected", cleanup);
-    socket.on("callEnded", cleanup);
+      socket.on("callRejected", cleanup);
+      socket.on("callEnded", cleanup);
+    };
+
+    startOutgoing();
 
     return () => {
       socket.off("callAccepted");
       socket.off("callRejected");
       socket.off("callEnded");
     };
-  }, [socket, stream]);
+  }, [socket, user, selectedUser]);
 
-  // Receiver: incoming call
+  // ---------------- Incoming Call ----------------
   useEffect(() => {
-    if (!socket || !stream) return;
+    const handleIncoming = async ({ from, signalData, callType }) => {
+      if (!socket || !user) return;
 
-    const handleIncoming = ({ from, signalData }) => {
+      const mediaStream = stream || (await initMedia());
+      if (!mediaStream) return;
+
       setCallStatus("incoming");
 
-      const answerPeer = new SimplePeer({ initiator: false, trickle: false, stream });
+      const answerPeer = new SimplePeer({ initiator: false, trickle: false, stream: mediaStream });
       setPeer(answerPeer);
 
       answerPeer.on("signal", (answerSignal) => {
@@ -136,7 +146,6 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
 
       answerPeer.signal(signalData);
 
-      // Listen for call end
       socket.on("endCall", cleanup);
     };
 
@@ -147,7 +156,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
       socket.off("incomingCall", handleIncoming);
       socket.off("callEnded", cleanup);
     };
-  }, [socket, stream]);
+  }, [socket, stream, user]);
 
   return (
     <div
@@ -176,13 +185,8 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
           gap: "10px",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ color: "#fff", fontWeight: "bold" }}>
             {callStatus === "incoming"
               ? "Incoming Call..."
@@ -206,6 +210,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
           </button>
         </div>
 
+        {/* Video Streams */}
         <div style={{ display: "flex", gap: "10px" }}>
           <div
             style={{
@@ -224,13 +229,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
                 style={{ width: "100%", height: "100%" }}
               />
             ) : (
-              <p
-                style={{
-                  color: "#fff",
-                  textAlign: "center",
-                  paddingTop: "50%",
-                }}
-              >
+              <p style={{ color: "#fff", textAlign: "center", paddingTop: "50%" }}>
                 Waiting...
               </p>
             )}
@@ -256,17 +255,12 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
           )}
         </div>
 
+        {/* Controls */}
         <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
           {callStatus !== "incoming" && (
             <>
-              <button onClick={toggleAudio}>
-                {audioEnabled ? "Mute" : "Unmute"}
-              </button>
-              {type === "video" && (
-                <button onClick={toggleVideo}>
-                  {videoEnabled ? "Video Off" : "Video On"}
-                </button>
-              )}
+              <button onClick={toggleAudio}>{audioEnabled ? "Mute" : "Unmute"}</button>
+              {type === "video" && <button onClick={toggleVideo}>{videoEnabled ? "Video Off" : "Video On"}</button>}
               <button onClick={endCall} style={{ background: "red", color: "#fff" }}>
                 End Call
               </button>
@@ -280,10 +274,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
               >
                 Accept
               </button>
-              <button
-                onClick={endCall}
-                style={{ background: "red", color: "#fff" }}
-              >
+              <button onClick={endCall} style={{ background: "red", color: "#fff" }}>
                 Reject
               </button>
             </>
