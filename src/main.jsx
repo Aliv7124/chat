@@ -13,12 +13,16 @@ ReactDOM.createRoot(document.getElementById("root")).render(
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { Buffer } from "buffer";
-import process from "process";
 
-window.global = window;
+// ✅ Polyfills for browser
+import { Buffer } from "buffer";
+
+// Attach polyfills to window/globalThis
+if (typeof global === "undefined") {
+  window.global = window; // Polyfill global
+}
 window.Buffer = Buffer;
-window.process = process;
+window.process = { env: {} }; // Minimal polyfill for process.env
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
