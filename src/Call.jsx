@@ -1,3 +1,4 @@
+/*
 import { Buffer } from "buffer";
 window.Buffer = Buffer;
 if (typeof global === "undefined") window.global = window;
@@ -214,7 +215,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
           gap: "10px",
         }}
       >
-        {/* Header */}
+
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ color: "#fff", fontWeight: "bold" }}>
             {callStatus === "incoming"
@@ -239,7 +240,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
           </button>
         </div>
 
-        {/* Video Streams */}
+        
         <div style={{ display: "flex", gap: "10px" }}>
           <div
             style={{
@@ -285,7 +286,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
           )}
         </div>
 
-        {/* Controls */}
+    
         <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
           {callStatus !== "incoming" && (
             <>
@@ -310,6 +311,201 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
           )}
         </div>
       </div>
+    </div>
+  );
+};
+
+export default Call;
+*/
+
+
+
+import React, { useEffect, useRef, useState } from "react";
+
+const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
+  const localRef = useRef(null);
+  const remoteRef = useRef(null);
+  const peerRef = useRef(null);
+  const streamRef = useRef(null);
+  const remoteOfferRef = useRef(null);
+
+  const [incoming, setIncoming] = useState(false);
+  const [caller, setCaller] = useState(null);
+
+  const iceConfig = {
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  };
+
+  useEffect(() => {
+    socket.on("incomingCall", ({ from, offer }) => {
+      setIncoming(true);
+      setCaller(from);
+      remoteOfferRef.current = offer;
+    });
+
+    socket.on("callAnswered", async ({ answer }) => {
+      if (peerRef.current) {
+        await peerRef.current.setRemoteDescription(
+          new RTCSessionDescription(answer)
+        );
+      }
+    });
+
+    socket.on("iceCandidate", ({ candidate }) => {
+      if (peerRef.current && candidate) {
+        peerRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+    });
+
+    socket.on("callEnded", cleanup);
+    socket.on("callRejected", cleanup);
+
+    return () => {
+      socket.off("incomingCall");
+      socket.off("callAnswered");
+      socket.off("iceCandidate");
+      socket.off("callEnded");
+      socket.off("callRejected");
+    };
+  }, [socket]);
+
+  const createPeer = async (isCaller) => {
+    streamRef.current = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: type === "video",
+    });
+
+    localRef.current.srcObject = streamRef.current;
+
+    const peer = new RTCPeerConnection(iceConfig);
+    peerRef.current = peer;
+
+    streamRef.current.getTracks().forEach((track) =>
+      peer.addTrack(track, streamRef.current)
+    );
+
+    peer.ontrack = (e) => {
+      remoteRef.current.srcObject = e.streams[0];
+    };
+
+    peer.onicecandidate = (e) => {
+      if (e.candidate) {
+        socket.emit("iceCandidate", {
+          to: isCaller ? selectedUser._id : caller,
+          candidate: e.candidate,
+        });
+      }
+    };
+
+    if (isCaller) {
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+
+      socket.emit("callUser", {
+        to: selectedUser._id,
+        from: user._id,
+        offer,
+      });
+    } else {
+      await peer.setRemoteDescription(
+        new RTCSessionDescription(remoteOfferRef.current)
+      );
+
+      const answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
+
+      socket.emit("answerCall", {
+        to: caller,
+        answer,
+      });
+
+      setIncoming(false);
+    }
+  };
+
+  const startCall = async () => {
+    await createPeer(true);
+  };
+
+  const acceptCall = async () => {
+    await createPeer(false);
+  };
+
+  const cleanup = () => {
+    peerRef.current?.close();
+    peerRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    onClose();
+  };
+
+  const endCall = () => {
+    socket.emit("endCall", {
+      to: selectedUser?._id || caller,
+    });
+    cleanup();
+  };
+
+  const rejectCall = () => {
+    socket.emit("rejectCall", { to: caller });
+    cleanup();
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.9)",
+        zIndex: 9999,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {type === "video" ? (
+        <>
+          <video ref={remoteRef} autoPlay playsInline style={{ width: "80%" }} />
+          <video
+            ref={localRef}
+            autoPlay
+            muted
+            playsInline
+            style={{
+              width: "200px",
+              position: "absolute",
+              bottom: 20,
+              right: 20,
+            }}
+          />
+        </>
+      ) : (
+        <>
+          <audio ref={remoteRef} autoPlay />
+          <audio ref={localRef} autoPlay muted />
+        </>
+      )}
+
+      {!incoming && (
+        <button onClick={startCall} className="btn btn-success mt-3">
+          Start Call
+        </button>
+      )}
+
+      {incoming && (
+        <div className="d-flex gap-3 mt-3">
+          <button onClick={acceptCall} className="btn btn-success">
+            Accept
+          </button>
+          <button onClick={rejectCall} className="btn btn-danger">
+            Reject
+          </button>
+        </div>
+      )}
+
+      <button onClick={endCall} className="btn btn-danger mt-3">
+        End Call
+      </button>
     </div>
   );
 };
