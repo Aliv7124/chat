@@ -191,10 +191,10 @@ useEffect(() => {
 export default ChatPage;
 */
 
-
 import React, { useContext, useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import ChatWindow from "../components/ChatWindow";
+import Call from "../Call";
 import { AuthContext } from "../context/AuthContext";
 import { useTheme } from "../ThemeContext";
 import { useNavigate } from "react-router-dom";
@@ -212,12 +212,16 @@ const ChatPage = () => {
   const { user, logout } = useContext(AuthContext);
   const { darkMode, toggleTheme } = useTheme();
   const [selectedUser, setSelectedUser] = useState(null);
+  const [callOpen, setCallOpen] = useState(false);
+  const [incomingCallInfo, setIncomingCallInfo] = useState(null);
+
   const navigate = useNavigate();
 
   useEffect(() => {
     if (!user) navigate("/");
   }, [user, navigate]);
 
+  // ---------------- Online status ----------------
   useEffect(() => {
     if (!user?._id) return;
 
@@ -236,6 +240,24 @@ const ChatPage = () => {
       socket.emit("userOffline", user._id);
     };
   }, [user?._id]);
+
+  // ---------------- Incoming call ----------------
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on("incomingCall", ({ from, offer }) => {
+      setIncomingCallInfo({ from, offer });
+      setCallOpen(true); // show call modal automatically
+      setSelectedUser(from);
+    });
+
+    return () => socket.off("incomingCall");
+  }, []);
+
+  const handleCallUser = (userToCall) => {
+    setSelectedUser(userToCall);
+    setCallOpen(true);
+  };
 
   const theme = {
     light: {
@@ -281,9 +303,7 @@ const ChatPage = () => {
               )}
             </button>
 
-            <span className="me-3 text-white fw-medium">
-              {user?.name}
-            </span>
+            <span className="me-3 text-white fw-medium">{user?.name}</span>
 
             <button
               className="btn btn-sm btn-outline-light"
@@ -307,7 +327,7 @@ const ChatPage = () => {
               overflowY: "auto",
             }}
           >
-            <Sidebar socket={socket} setSelectedUser={setSelectedUser} />
+            <Sidebar socket={socket} setSelectedUser={setSelectedUser} handleCallUser={handleCallUser} />
           </div>
 
           <div
@@ -316,16 +336,28 @@ const ChatPage = () => {
               background: current.chat,
             }}
           >
-            <ChatWindow
-              socket={socket}
-              user={user}
-              selectedUser={selectedUser}
-            />
+            <ChatWindow socket={socket} user={user} selectedUser={selectedUser} />
           </div>
         </div>
       </div>
+
+      {/* ---------------- Call Modal ---------------- */}
+      {callOpen && selectedUser && (
+        <Call
+          socket={socket}
+          user={user}
+          selectedUser={selectedUser}
+          type="video"
+          onClose={() => {
+            setCallOpen(false);
+            setIncomingCallInfo(null);
+            setSelectedUser(null);
+          }}
+        />
+      )}
     </div>
   );
 };
 
 export default ChatPage;
+
