@@ -191,7 +191,8 @@ useEffect(() => {
 export default ChatPage;
 */
 
-import React, { useContext, useEffect, useState } from "react";
+
+import React, { useContext, useState, useEffect } from "react";
 import Sidebar from "../components/Sidebar";
 import ChatWindow from "../components/ChatWindow";
 import Call from "../Call";
@@ -200,12 +201,9 @@ import { useTheme } from "../ThemeContext";
 import { useNavigate } from "react-router-dom";
 import io from "socket.io-client";
 
-const SOCKET_URL = "https://chat-b-7y5f.onrender.com";
-
-const socket = io(SOCKET_URL, {
+const socket = io("https://chat-b-7y5f.onrender.com", {
   transports: ["websocket"],
   withCredentials: true,
-  autoConnect: true,
 });
 
 const ChatPage = () => {
@@ -213,98 +211,94 @@ const ChatPage = () => {
   const { darkMode, toggleTheme } = useTheme();
   const [selectedUser, setSelectedUser] = useState(null);
   const [callOpen, setCallOpen] = useState(false);
-  const [incomingCallInfo, setIncomingCallInfo] = useState(null);
-
+  const [callType, setCallType] = useState(null);
+  const [callUser, setCallUser] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     if (!user) navigate("/");
   }, [user, navigate]);
 
-  // ---------------- Online status ----------------
   useEffect(() => {
-    if (!user?._id) return;
-
+    if (!socket || !user?._id) return;
     socket.emit("userOnline", user._id);
-
-    socket.on("connect", () => {
-      socket.emit("userOnline", user._id);
-    });
-
-    window.addEventListener("beforeunload", () => {
-      socket.emit("userOffline", user._id);
-    });
-
-    return () => {
-      socket.off("connect");
-      socket.emit("userOffline", user._id);
-    };
+    socket.on("connect", () => socket.emit("userOnline", user._id));
+    return () => socket.off("connect");
   }, [user?._id]);
 
-  // ---------------- Incoming call ----------------
   useEffect(() => {
-    if (!socket) return;
-
-    socket.on("incomingCall", ({ from, offer }) => {
-      setIncomingCallInfo({ from, offer });
-      setCallOpen(true); // show call modal automatically
-      setSelectedUser(from);
+    socket.on("incoming-call", ({ from, type }) => {
+      setCallUser(from);
+      setCallType(type);
+      setCallOpen(true);
     });
 
-    return () => socket.off("incomingCall");
+    socket.on("call-ended", closeCall);
+
+    return () => {
+      socket.off("incoming-call");
+      socket.off("call-ended");
+    };
   }, []);
 
-  const handleCallUser = (userToCall) => {
-    setSelectedUser(userToCall);
+  const startCall = (type) => {
+    if (!selectedUser) return;
+    setCallUser(selectedUser);
+    setCallType(type);
     setCallOpen(true);
   };
 
-  const theme = {
+  const closeCall = () => {
+    setCallOpen(false);
+    setCallType(null);
+    setCallUser(null);
+  };
+
+  const themeStyles = {
     light: {
-      bg: "#f8f9fa",
-      text: "#212529",
-      sidebar: "#ffffff",
-      chat: "linear-gradient(180deg, #eef3ff 0%, #ffffff 100%)",
-      nav: "linear-gradient(90deg, #6a11cb 0%, #2575fc 100%)",
+      bgColor: "#f8f9fa",
+      textColor: "#212529",
+      sidebarBg: "#ffffff",
+      chatBg: "linear-gradient(180deg, #eef3ff 0%, #ffffff 100%)",
+      navBg: "linear-gradient(90deg, #6a11cb 0%, #2575fc 100%)",
       accent: "#ffffff",
     },
     dark: {
-      bg: "#121212",
-      text: "#e4e4e4",
-      sidebar: "#1e1e1e",
-      chat: "linear-gradient(180deg, #1a1a1a 0%, #121212 100%)",
-      nav: "linear-gradient(90deg, #0f2027 0%, #203a43 50%, #2c5364 100%)",
+      bgColor: "#121212",
+      textColor: "#e4e4e4",
+      sidebarBg: "#1e1e1e",
+      chatBg: "linear-gradient(180deg, #1a1a1a 0%, #121212 100%)",
+      navBg: "linear-gradient(90deg, #0f2027 0%, #203a43 50%, #2c5364 100%)",
       accent: "#ffcc00",
     },
   };
 
-  const current = darkMode ? theme.dark : theme.light;
+  const currentTheme = darkMode ? themeStyles.dark : themeStyles.light;
 
   return (
-    <div style={{ background: current.bg, color: current.text, height: "100vh" }}>
+    <div
+      style={{
+        backgroundColor: currentTheme.bgColor,
+        color: currentTheme.textColor,
+        height: "100vh",
+      }}
+    >
       <nav
         className="navbar navbar-expand-lg shadow-sm"
-        style={{ background: current.nav }}
+        style={{ background: currentTheme.navBg }}
       >
         <div className="container-fluid">
           <span className="navbar-brand fw-semibold text-white">
-            <i className="bi bi-chat-dots-fill me-2"></i>ChatConnect
+            ChatConnect
           </span>
-
           <div className="ms-auto d-flex align-items-center">
             <button
               className="btn btn-outline-light rounded-circle me-3"
               onClick={toggleTheme}
             >
-              {darkMode ? (
-                <i className="bi bi-sun-fill"></i>
-              ) : (
-                <i className="bi bi-moon-stars-fill"></i>
-              )}
+              {darkMode ? "☀️" : "🌙"}
             </button>
-
-            <span className="me-3 text-white fw-medium">{user?.name}</span>
-
+            <span className="me-3 text-white">{user?.name}</span>
             <button
               className="btn btn-sm btn-outline-light"
               onClick={() => {
@@ -322,37 +316,29 @@ const ChatPage = () => {
         <div className="row g-0" style={{ height: "calc(100vh - 56px)" }}>
           <div
             className="col-md-3 border-end"
-            style={{
-              background: current.sidebar,
-              overflowY: "auto",
-            }}
+            style={{ background: currentTheme.sidebarBg }}
           >
-            <Sidebar socket={socket} setSelectedUser={setSelectedUser} handleCallUser={handleCallUser} />
+            <Sidebar setSelectedUser={setSelectedUser} socket={socket} />
           </div>
 
-          <div
-            className="col-md-9 d-flex flex-column"
-            style={{
-              background: current.chat,
-            }}
-          >
-            <ChatWindow socket={socket} user={user} selectedUser={selectedUser} />
+          <div className="col-md-9">
+            <ChatWindow
+              user={user}
+              selectedUser={selectedUser}
+              socket={socket}
+              startCall={startCall}
+            />
           </div>
         </div>
       </div>
 
-      {/* ---------------- Call Modal ---------------- */}
-      {callOpen && selectedUser && (
+      {callOpen && callUser && (
         <Call
           socket={socket}
           user={user}
-          selectedUser={selectedUser}
-          type="video"
-          onClose={() => {
-            setCallOpen(false);
-            setIncomingCallInfo(null);
-            setSelectedUser(null);
-          }}
+          otherUser={callUser}
+          type={callType}
+          onEnd={closeCall}
         />
       )}
     </div>
@@ -360,4 +346,3 @@ const ChatPage = () => {
 };
 
 export default ChatPage;
-

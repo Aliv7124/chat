@@ -56,4 +56,19 @@ const Home = () => {
 };
 
 export default Home;
+
+
+<small
+  className="d-block text-end text-muted"
+  style={{ fontSize: "0.75rem" }}
+>
+  {msg.createdAt
+    ? new Date(msg.createdAt).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "numeric",
+        hour12: true,
+      }).toLowerCase()
+    : ""}
+</small>
+
 */
