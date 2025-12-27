@@ -524,6 +524,20 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
   const BASE_URL =
     import.meta.env.VITE_BACKEND_URL || "https://chat-b-7y5f.onrender.com";
 
+  // Format last seen like "27 December 7:35 PM"
+  const formatLastSeen = (timestamp) => {
+    if (!timestamp) return "";
+    const date = new Date(timestamp);
+    const options = {
+      day: "2-digit",
+      month: "long",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    };
+    return date.toLocaleString("en-US", options);
+  };
+
   useEffect(() => {
     if (socket && user) socket.emit("userOnline", user._id);
   }, [socket, user]);
@@ -579,7 +593,7 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
         const res = await API.get(`/users/${selectedUser._id}`, {
           headers: { Authorization: `Bearer ${user.token}` },
         });
-        setUserLastSeen(res.data.lastSeen);
+        setUserLastSeen(res.data.lastSeen ? formatLastSeen(res.data.lastSeen) : "Offline");
       } catch (err) {
         console.error(err);
       }
@@ -593,14 +607,6 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
     if (!socket || !selectedUser) return;
 
     let lastOnlineUpdate = 0;
-
-    const formatLastSeen = (timestamp) => {
-      if (!timestamp) return "";
-      const date = new Date(timestamp);
-      const hours = date.getHours().toString().padStart(2, "0");
-      const minutes = date.getMinutes().toString().padStart(2, "0");
-      return `Last seen ${hours}:${minutes}`;
-    };
 
     const handleUserStatus = ({ userId, status, lastSeen }) => {
       if (userId !== selectedUser._id) return;
@@ -763,7 +769,6 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
           minHeight: "60px",
         }}
       >
-        {/* Name + status */}
         <div>
           <h6 className="mb-0 fw-semibold">{selectedUser.name}</h6>
           <small className="text-muted">
@@ -775,7 +780,6 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
           </small>
         </div>
 
-        {/* CALL BUTTONS */}
         <div className="d-flex gap-2">
           <button
             className="btn btn-success btn-sm"
@@ -812,9 +816,7 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
             <div
               key={msg._id}
               className={`d-flex mb-2 ${
-                msg.sender === user._id
-                  ? "justify-content-end"
-                  : "justify-content-start"
+                msg.sender === user._id ? "justify-content-end" : "justify-content-start"
               }`}
             >
               <div
@@ -828,10 +830,7 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
                 style={{ maxWidth: "70%" }}
               >
                 {msg.sender === user._id && (
-                  <div
-                    className="position-absolute"
-                    style={{ top: "4px", right: "-20px" }}
-                  >
+                  <div className="position-absolute" style={{ top: "4px", right: "-20px" }}>
                     <button
                       onClick={() =>
                         setActiveMenu(activeMenu === msg._id ? null : msg._id)
@@ -950,9 +949,7 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
         <button
           type="button"
           onClick={handleMicClick}
-          className={`btn me-2 rounded-circle ${
-            recording ? "btn-danger" : "btn-secondary"
-          }`}
+          className={`btn me-2 rounded-circle ${recording ? "btn-danger" : "btn-secondary"}`}
           style={{ width: "40px", height: "40px" }}
         >
           <i className="bi bi-mic-fill"></i>

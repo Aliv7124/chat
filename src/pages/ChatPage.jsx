@@ -216,12 +216,10 @@ const ChatPage = () => {
   const [callUser, setCallUser] = useState(null);
   const [callType, setCallType] = useState(null);
 
-  // ================= AUTH CHECK =================
   useEffect(() => {
     if (!user) navigate("/");
   }, [user]);
 
-  // ================= SOCKET INIT =================
   useEffect(() => {
     if (!user?._id) return;
 
@@ -248,7 +246,6 @@ const ChatPage = () => {
     };
   }, [user]);
 
-  // ================= START CALL =================
   const startCall = (type) => {
     if (!selectedUser) return;
     setCallUser(selectedUser);
@@ -262,7 +259,6 @@ const ChatPage = () => {
     setCallType(null);
   };
 
-  // ================= UI =================
   return (
     <div
       style={{
@@ -282,10 +278,7 @@ const ChatPage = () => {
         <div className="container-fluid">
           <span className="navbar-brand text-white">ChatConnect</span>
           <div className="d-flex align-items-center gap-3">
-            <button
-              className="btn btn-outline-light"
-              onClick={toggleTheme}
-            >
+            <button className="btn btn-outline-light" onClick={toggleTheme}>
               {darkMode ? "☀️" : "🌙"}
             </button>
             <span className="text-white">{user?.name}</span>
