@@ -197,91 +197,69 @@ export default Call;
 */
 
 
-
 import React, { useEffect, useRef, useState } from "react";
 
 const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
   const localRef = useRef(null);
   const remoteRef = useRef(null);
-  const peerRef = useRef(null);
+  const pcRef = useRef(null);
   const streamRef = useRef(null);
 
   const [state, setState] = useState(null); // calling | incoming | connected
-  const [timer, setTimer] = useState(0);
   const [caller, setCaller] = useState(null);
+  const [timer, setTimer] = useState(0);
 
   const iceConfig = {
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   };
 
+  // ================= SOCKET EVENTS =================
   useEffect(() => {
-    socket.on("incoming-call", ({ from, type }) => {
+    socket.on("incoming-call", ({ from }) => {
       setCaller(from);
       setState("incoming");
     });
 
-    socket.on("call-accepted", async () => {
-      setState("connected");
-      startWebRTC(true);
+    socket.on("call-accepted", () => {
+      createOffer(); // ONLY CALLER DOES THIS
+    });
+
+    socket.on("webrtc-offer", async ({ offer }) => {
+      await createAnswer(offer);
+    });
+
+    socket.on("webrtc-answer", async ({ answer }) => {
+      await pcRef.current.setRemoteDescription(answer);
+    });
+
+    socket.on("webrtc-ice", ({ candidate }) => {
+      if (candidate && pcRef.current)
+        pcRef.current.addIceCandidate(candidate);
     });
 
     socket.on("call-ended", cleanup);
 
-    socket.on("webrtc-offer", async ({ offer }) => {
-      await startWebRTC(false, offer);
-    });
+    return () => socket.removeAllListeners();
+  }, []);
 
-    socket.on("webrtc-answer", async ({ answer }) => {
-      await peerRef.current.setRemoteDescription(
-        new RTCSessionDescription(answer)
-      );
-    });
+  // ================= CORE WEBRTC =================
+  const createPeer = async () => {
+    pcRef.current = new RTCPeerConnection(iceConfig);
 
-    socket.on("webrtc-ice", async ({ candidate }) => {
-      if (candidate) {
-        await peerRef.current.addIceCandidate(
-          new RTCIceCandidate(candidate)
-        );
-      }
-    });
-
-    return () => {
-      socket.off("incoming-call");
-      socket.off("call-accepted");
-      socket.off("call-ended");
-      socket.off("webrtc-offer");
-      socket.off("webrtc-answer");
-      socket.off("webrtc-ice");
-    };
-  }, [socket]);
-
-  useEffect(() => {
-    let interval;
-    if (state === "connected") {
-      interval = setInterval(() => setTimer((t) => t + 1), 1000);
-    }
-    return () => clearInterval(interval);
-  }, [state]);
-
-  const startWebRTC = async (isCaller, remoteOffer = null) => {
     streamRef.current = await navigator.mediaDevices.getUserMedia({
       audio: true,
       video: type === "video",
     });
 
-    if (localRef.current) localRef.current.srcObject = streamRef.current;
-
-    peerRef.current = new RTCPeerConnection(iceConfig);
-
-    streamRef.current.getTracks().forEach((track) =>
-      peerRef.current.addTrack(track, streamRef.current)
+    streamRef.current.getTracks().forEach((t) =>
+      pcRef.current.addTrack(t, streamRef.current)
     );
 
-    peerRef.current.ontrack = (e) => {
+    pcRef.current.ontrack = (e) => {
       remoteRef.current.srcObject = e.streams[0];
     };
 
-    peerRef.current.onicecandidate = (e) => {
+    pcRef.current.onicecandidate = (e) => {
       if (e.candidate) {
         socket.emit("webrtc-ice", {
           to: otherUser._id,
@@ -290,24 +268,30 @@ const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
       }
     };
 
-    if (isCaller) {
-      const offer = await peerRef.current.createOffer();
-      await peerRef.current.setLocalDescription(offer);
-      socket.emit("webrtc-offer", { to: otherUser._id, offer });
-    } else {
-      await peerRef.current.setRemoteDescription(
-        new RTCSessionDescription(remoteOffer)
-      );
-      const answer = await peerRef.current.createAnswer();
-      await peerRef.current.setLocalDescription(answer);
-      socket.emit("webrtc-answer", { to: caller._id, answer });
-      setState("connected");
-    }
+    if (localRef.current) localRef.current.srcObject = streamRef.current;
   };
 
+  const createOffer = async () => {
+    await createPeer();
+    const offer = await pcRef.current.createOffer();
+    await pcRef.current.setLocalDescription(offer);
+    socket.emit("webrtc-offer", { to: otherUser._id, offer });
+    setState("connected");
+  };
+
+  const createAnswer = async (offer) => {
+    await createPeer();
+    await pcRef.current.setRemoteDescription(offer);
+    const answer = await pcRef.current.createAnswer();
+    await pcRef.current.setLocalDescription(answer);
+    socket.emit("webrtc-answer", { to: caller._id, answer });
+    setState("connected");
+  };
+
+  // ================= USER ACTIONS =================
   const startCall = () => {
     setState("calling");
-    socket.emit("call-user", { to: otherUser._id, from: user, type });
+    socket.emit("call-user", { to: otherUser._id, from: user });
   };
 
   const acceptCall = () => {
@@ -320,97 +304,180 @@ const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
   };
 
   const cleanup = () => {
-    peerRef.current?.close();
-    peerRef.current = null;
+    pcRef.current?.close();
     streamRef.current?.getTracks().forEach((t) => t.stop());
-    setTimer(0);
+    pcRef.current = null;
     setState(null);
     setCaller(null);
-    onEnd && onEnd();
+    setTimer(0);
+    onEnd?.();
   };
+
+  // ================= TIMER =================
+  useEffect(() => {
+    if (state !== "connected") return;
+    const i = setInterval(() => setTimer((t) => t + 1), 1000);
+    return () => clearInterval(i);
+  }, [state]);
 
   const formatTime = () =>
     `${String(Math.floor(timer / 60)).padStart(2, "0")}:${String(
       timer % 60
     ).padStart(2, "0")}`;
 
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.95)",
-        zIndex: 9999,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        color: "white",
-      }}
-    >
-      {state === "connected" && (
-        <>
-          {type === "video" && (
-            <>
-              <video
-                ref={remoteRef}
-                autoPlay
-                playsInline
-                style={{ width: "85%" }}
-              />
-              <video
-                ref={localRef}
-                autoPlay
-                muted
-                playsInline
-                style={{
-                  width: 180,
-                  position: "absolute",
-                  bottom: 20,
-                  right: 20,
-                  borderRadius: 10,
-                }}
-              />
-            </>
-          )}
-          {type === "audio" && <audio ref={remoteRef} autoPlay />}
-          <div style={{ position: "absolute", top: 15 }}>{formatTime()}</div>
-          <button onClick={endCall} className="btn btn-danger mt-3">
-            End Call
-          </button>
-        </>
-      )}
+ return (
+  <div className="call-ui">
+    {state === "connected" && (
+      <>
+        {type === "video" && (
+          <>
+            <video ref={remoteRef} autoPlay playsInline />
+            <video ref={localRef} autoPlay muted playsInline className="pip" />
+          </>
+        )}
+        <div>{formatTime()}</div>
+        <button onClick={endCall}>End</button>
+      </>
+    )}
 
-      {state === "calling" && (
-        <>
-          <h4>Calling...</h4>
-          <button onClick={endCall} className="btn btn-danger mt-3">
+    {state === "calling" && (
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100vw",
+          height: "100vh",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: "rgba(0,0,0,0.3)",
+          zIndex: 3000,
+        }}
+      >
+        <div
+          style={{
+            backgroundColor: "white",
+            padding: "30px 40px",
+            borderRadius: "10px",
+            textAlign: "center",
+          }}
+        >
+          <h3>Calling...</h3>
+          <button
+            onClick={endCall}
+            style={{
+              marginTop: "15px",
+              padding: "10px 20px",
+              borderRadius: "8px",
+              border: "none",
+              backgroundColor: "#dc3545",
+              color: "white",
+              cursor: "pointer",
+            }}
+          >
             Cancel
           </button>
-        </>
-      )}
+        </div>
+      </div>
+    )}
 
-      {state === "incoming" && (
-        <div className="bg-dark p-4 rounded">
-          <h4>Incoming Call</h4>
-          <div className="d-flex gap-3 mt-3">
-            <button onClick={acceptCall} className="btn btn-success">
+    {state === "incoming" && (
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100vw",
+          height: "100vh",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: "rgba(0,0,0,0.3)",
+          zIndex: 3000,
+        }}
+      >
+        <div
+          style={{
+            backgroundColor: "white",
+            padding: "30px 40px",
+            borderRadius: "10px",
+            textAlign: "center",
+          }}
+        >
+          <h3>Incoming Call</h3>
+          <div
+            style={{
+              marginTop: "15px",
+              display: "flex",
+              gap: "10px",
+              justifyContent: "center",
+            }}
+          >
+            <button
+              onClick={acceptCall}
+              style={{
+                padding: "10px 20px",
+                borderRadius: "8px",
+                border: "none",
+                backgroundColor: "#198754",
+                color: "white",
+                cursor: "pointer",
+              }}
+            >
               Accept
             </button>
-            <button onClick={endCall} className="btn btn-danger">
+            <button
+              onClick={endCall}
+              style={{
+                padding: "10px 20px",
+                borderRadius: "8px",
+                border: "none",
+                backgroundColor: "#dc3545",
+                color: "white",
+                cursor: "pointer",
+              }}
+            >
               Reject
             </button>
           </div>
         </div>
-      )}
+      </div>
+    )}
 
-      {!state && (
-        <button onClick={startCall} className="btn btn-success">
-          Start Call
+    {!state && (
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100vw",
+          height: "100vh",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: "rgba(0,0,0,0.3)",
+          zIndex: 3000,
+        }}
+      >
+        <button
+          onClick={startCall}
+          style={{
+            padding: "15px 25px",
+            fontSize: "18px",
+            borderRadius: "10px",
+            backgroundColor: type === "video" ? "#0d6efd" : "#198754",
+            color: "white",
+            border: "none",
+            cursor: "pointer",
+          }}
+        >
+          Start {type === "video" ? "Video" : "Audio"} Call
         </button>
-      )}
-    </div>
-  );
-};
+      </div>
+    )}
+  </div>
+);
+}
 
 export default Call;

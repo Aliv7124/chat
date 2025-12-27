@@ -501,13 +501,13 @@ export default ChatWindow;
 
 */
 
-/*
+
 import React, { useEffect, useState, useRef } from "react";
 import EmojiPicker from "emoji-picker-react";
 import API from "../api";
 import { useTheme } from "../ThemeContext";
 
-const ChatWindow = ({ user, selectedUser, socket }) => {
+const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
   const { darkMode } = useTheme();
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
@@ -524,20 +524,15 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
   const BASE_URL =
     import.meta.env.VITE_BACKEND_URL || "https://chat-b-7y5f.onrender.com";
 
-  // ✅ Notify backend user is online
   useEffect(() => {
-    if (socket && user?._id) {
-      socket.emit("userOnline", user._id);
-    }
+    if (socket && user) socket.emit("userOnline", user._id);
   }, [socket, user]);
 
-  // ✅ Join private room
   useEffect(() => {
     if (!socket || !selectedUser) return;
     socket.emit("joinRoom", { userId: user._id, receiverId: selectedUser._id });
   }, [socket, user, selectedUser]);
 
-  // ✅ Typing indicators
   useEffect(() => {
     if (!socket) return;
     socket.on("typing", () => setIsTyping(true));
@@ -548,10 +543,8 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
     };
   }, [socket]);
 
-  // ✅ Receive messages in real time
   useEffect(() => {
     if (!socket || !selectedUser) return;
-
     const handleReceive = (message) => {
       const isForThisChat =
         (message.sender === selectedUser._id && message.receiver === user._id) ||
@@ -563,12 +556,10 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
         });
       }
     };
-
     socket.on("receiveMessage", handleReceive);
     return () => socket.off("receiveMessage", handleReceive);
   }, [socket, selectedUser?._id, user?._id]);
 
-  // ✅ Fetch chat history & last seen
   useEffect(() => {
     const fetchMessages = async () => {
       if (!selectedUser) return;
@@ -598,49 +589,46 @@ const ChatWindow = ({ user, selectedUser, socket }) => {
     fetchLastSeen();
   }, [selectedUser, user]);
 
-  // ✅ Real-time Online/Offline status
-useEffect(() => {
-  if (!socket || !selectedUser) return;
+  useEffect(() => {
+    if (!socket || !selectedUser) return;
 
-  const formatLastSeen = (timestamp) => {
-    if (!timestamp) return "";
-    const date = new Date(timestamp);
-    const hours = date.getHours().toString().padStart(2, "0");
-    const minutes = date.getMinutes().toString().padStart(2, "0");
-    return `Last seen ${hours}:${minutes}`;
-  };
+    let lastOnlineUpdate = 0;
 
-  const handleUserStatus = ({ userId, status, lastSeen }) => {
-    if (userId === selectedUser._id) {
-      setUserLastSeen(status === "online" ? "online" : formatLastSeen(lastSeen));
-    }
-  };
+    const formatLastSeen = (timestamp) => {
+      if (!timestamp) return "";
+      const date = new Date(timestamp);
+      const hours = date.getHours().toString().padStart(2, "0");
+      const minutes = date.getMinutes().toString().padStart(2, "0");
+      return `Last seen ${hours}:${minutes}`;
+    };
 
-  const handleOnlineUsers = (onlineUsers) => {
-    if (onlineUsers.includes(selectedUser._id)) {
-      setUserLastSeen("online");
-    } else {
-      // Keep last seen if we have it
-      setUserLastSeen((prev) =>
-        typeof prev === "string" && prev.startsWith("Last seen") ? prev : "offline"
-      );
-    }
-  };
+    const handleUserStatus = ({ userId, status, lastSeen }) => {
+      if (userId !== selectedUser._id) return;
+      const now = Date.now();
+      if (status === "online") {
+        lastOnlineUpdate = now;
+        setUserLastSeen("online");
+      } else if (status === "offline" && lastSeen && now - lastOnlineUpdate > 500) {
+        setUserLastSeen(formatLastSeen(lastSeen));
+      }
+    };
 
-  socket.on("userStatusChange", handleUserStatus);
-  socket.on("updateOnlineUsers", handleOnlineUsers);
+    const handleOnlineUsers = (onlineUsers) => {
+      if (onlineUsers.includes(selectedUser._id)) {
+        lastOnlineUpdate = Date.now();
+        setUserLastSeen("online");
+      }
+    };
 
-  // Ask backend for current online users instantly
-  socket.emit("getOnlineUsers");
+    socket.on("userStatusChange", handleUserStatus);
+    socket.on("updateOnlineUsers", handleOnlineUsers);
 
-  return () => {
-    socket.off("userStatusChange", handleUserStatus);
-    socket.off("updateOnlineUsers", handleOnlineUsers);
-  };
-}, [socket, selectedUser]);
+    return () => {
+      socket.off("userStatusChange", handleUserStatus);
+      socket.off("updateOnlineUsers", handleOnlineUsers);
+    };
+  }, [socket, selectedUser]);
 
-
-  // ✅ Close emoji picker when clicked outside
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (emojiRef.current && !emojiRef.current.contains(e.target)) {
@@ -652,7 +640,6 @@ useEffect(() => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // ✅ Auto scroll to bottom
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "instant" });
@@ -764,6 +751,7 @@ useEffect(() => {
       }}
       className={darkMode ? "bg-dark text-light" : "bg-light text-dark"}
     >
+      {/* HEADER */}
       <div
         className={`d-flex align-items-center justify-content-between border-bottom px-3 py-2 ${
           darkMode ? "bg-secondary text-light" : "bg-light text-dark"
@@ -775,39 +763,37 @@ useEffect(() => {
           minHeight: "60px",
         }}
       >
-        <div className="d-flex flex-column text-center w-100">
+        {/* Name + status */}
+        <div>
           <h6 className="mb-0 fw-semibold">{selectedUser.name}</h6>
-
-          {userLastSeen === "online" && (
-            <span
-              style={{
-                width: "10px",
-                height: "10px",
-                backgroundColor: "limegreen",
-                borderRadius: "50%",
-                display: "inline-block",
-              }}
-            />
-          )}
-
           <small className="text-muted">
             {isTyping
               ? "Typing..."
               : userLastSeen === "online"
               ? "Online"
-              : userLastSeen
-              ? userLastSeen.startsWith("Last seen")
-                ? userLastSeen
-                : `Last seen ${new Date(userLastSeen).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}`
-              : "Offline"}
+              : userLastSeen || "Offline"}
           </small>
+        </div>
+
+        {/* CALL BUTTONS */}
+        <div className="d-flex gap-2">
+          <button
+            className="btn btn-success btn-sm"
+            onClick={() => startCall("audio")}
+          >
+            📞
+          </button>
+
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => startCall("video")}
+          >
+            🎥
+          </button>
         </div>
       </div>
 
-    
+      {/* MESSAGES */}
       <div
         className="flex-grow-1 p-3 overflow-auto"
         style={{
@@ -841,7 +827,6 @@ useEffect(() => {
                 }`}
                 style={{ maxWidth: "70%" }}
               >
-                
                 {msg.sender === user._id && (
                   <div
                     className="position-absolute"
@@ -885,7 +870,6 @@ useEffect(() => {
                   </div>
                 )}
 
-               
                 {msg.fileType === "image" ? (
                   <img
                     src={`${BASE_URL}${msg.fileUrl}`}
@@ -924,7 +908,7 @@ useEffect(() => {
         <div ref={messagesEndRef} />
       </div>
 
-     
+      {/* INPUT */}
       {showEmojiPicker && (
         <div
           ref={emojiRef}
@@ -957,7 +941,6 @@ useEffect(() => {
         </div>
       )}
 
-     
       <form
         onSubmit={handleSend}
         className={`p-3 border-top d-flex align-items-center position-relative ${
@@ -1012,326 +995,6 @@ useEffect(() => {
           <i className="bi bi-send-fill"></i>
         </button>
       </form>
-    </div>
-  );
-};
-
-export default ChatWindow;
-
-*/
-
-
-
-import React, { useEffect, useState, useRef } from "react";
-import EmojiPicker from "emoji-picker-react";
-import API from "../api";
-import { useTheme } from "../ThemeContext";
-import Call from "../Call.jsx";
-
-const ChatWindow = ({ user, selectedUser, socket }) => {
-  const { darkMode } = useTheme();
-  const [messages, setMessages] = useState([]);
-  const [text, setText] = useState("");
-  const [userLastSeen, setUserLastSeen] = useState(null);
-  const [isTyping, setIsTyping] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [mediaRecorder, setMediaRecorder] = useState(null);
-  const [audioChunks, setAudioChunks] = useState([]);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [callType, setCallType] = useState(null);
-  const [callOpen, setCallOpen] = useState(false);
-  const [incomingCall, setIncomingCall] = useState(null); // { from, type }
-
-  const emojiRef = useRef(null);
-  const messagesEndRef = useRef(null);
-
-  const BASE_URL = import.meta.env.VITE_BACKEND_URL || "https://chat-b-7y5f.onrender.com";
-
-  // Join room & online status
-  useEffect(() => {
-    if (socket && user?._id) socket.emit("userOnline", user._id);
-    if (!socket || !selectedUser) return;
-    socket.emit("joinRoom", { userId: user._id, receiverId: selectedUser._id });
-  }, [socket, user, selectedUser]);
-
-  // Typing events
-  useEffect(() => {
-    if (!socket) return;
-    socket.on("typing", () => setIsTyping(true));
-    socket.on("stopTyping", () => setIsTyping(false));
-    return () => {
-      socket.off("typing");
-      socket.off("stopTyping");
-    };
-  }, [socket]);
-
-  // Receive messages
-  useEffect(() => {
-    if (!socket || !selectedUser) return;
-
-    const handleReceive = (message) => {
-      const isForThisChat =
-        (message.sender === selectedUser._id && message.receiver === user._id) ||
-        (message.sender === user._id && message.receiver === selectedUser._id);
-      if (isForThisChat) {
-        setMessages((prev) => {
-          if (prev.some((m) => m._id === message._id)) return prev;
-          return [...prev, message];
-        });
-      }
-    };
-
-    socket.on("receiveMessage", handleReceive);
-    return () => socket.off("receiveMessage", handleReceive);
-  }, [socket, selectedUser?._id, user?._id]);
-
-  // Fetch messages and last seen
-  useEffect(() => {
-    const fetchMessages = async () => {
-      if (!selectedUser) return;
-      try {
-        const res = await API.get(`/messages/${selectedUser._id}`, {
-          headers: { Authorization: `Bearer ${user.token}` },
-        });
-        setMessages(res.data);
-      } catch (err) {
-        console.error(err);
-      }
-    };
-
-    const fetchLastSeen = async () => {
-      if (!selectedUser?._id) return;
-      try {
-        const res = await API.get(`/users/${selectedUser._id}`, {
-          headers: { Authorization: `Bearer ${user.token}` },
-        });
-        setUserLastSeen(res.data.lastSeen);
-      } catch (err) {
-        console.error(err);
-      }
-    };
-
-    fetchMessages();
-    fetchLastSeen();
-  }, [selectedUser, user]);
-
-  // Click outside emoji picker
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (emojiRef.current && !emojiRef.current.contains(e.target)) {
-        setShowEmojiPicker(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  // Scroll to bottom
-  useEffect(() => {
-    if (messagesEndRef.current) messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
-  }, [messages, selectedUser]);
-
-  // Incoming call listener
-  useEffect(() => {
-    if (!socket) return;
-
-    const handleIncomingCall = ({ from, type }) => {
-      setIncomingCall({ from, type });
-      setCallType(type);
-      setCallOpen(true);
-    };
-
-    socket.on("incoming-call", handleIncomingCall);
-    return () => socket.off("incoming-call", handleIncomingCall);
-  }, [socket]);
-
-  // Send message
-  const sendMessage = async (formData) => {
-    try {
-      const res = await API.post("/messages", formData, {
-        headers: { Authorization: `Bearer ${user.token}`, "Content-Type": "multipart/form-data" },
-      });
-      socket.emit("sendMessage", res.data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleSend = async (e) => {
-    e.preventDefault();
-    if (!text.trim()) return;
-    const formData = new FormData();
-    formData.append("receiverId", selectedUser._id);
-    formData.append("content", text);
-    await sendMessage(formData);
-    setText("");
-  };
-
-  const handleTyping = (e) => {
-    setText(e.target.value);
-    if (!socket || !selectedUser) return;
-    socket.emit("typing", [user._id, selectedUser._id].sort().join("_"));
-    clearTimeout(window.typingTimeout);
-    window.typingTimeout = setTimeout(() => {
-      socket.emit("stopTyping", [user._id, selectedUser._id].sort().join("_"));
-    }, 1500);
-  };
-
-  const handleFileChange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const formData = new FormData();
-    formData.append("receiverId", selectedUser._id);
-    formData.append("file", file);
-    await sendMessage(formData);
-  };
-
-  // Voice recording
-  const handleMicClick = async () => {
-    if (!recording) {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      setMediaRecorder(recorder);
-      setAudioChunks([]);
-      recorder.start();
-      setRecording(true);
-      recorder.ondataavailable = (e) => setAudioChunks((prev) => [...prev, e.data]);
-      recorder.onstop = async () => {
-        const blob = new Blob(audioChunks, { type: "audio/webm" });
-        const file = new File([blob], "voice.webm", { type: "audio/webm" });
-        const formData = new FormData();
-        formData.append("receiverId", selectedUser._id);
-        formData.append("file", file);
-        await sendMessage(formData);
-        setRecording(false);
-      };
-    } else {
-      mediaRecorder.stop();
-    }
-  };
-
-  const handleEmojiClick = (emojiData) => setText((p) => p + emojiData.emoji);
-
-  const startCall = (type) => {
-    setCallType(type);
-    setCallOpen(true);
-    socket.emit("call-user", { to: selectedUser._id, from: user._id, type });
-  };
-
-  if (!selectedUser)
-    return (
-      <div className={`d-flex flex-column justify-content-center align-items-center text-center h-100 ${darkMode ? "bg-dark text-light" : "bg-light text-dark"}`}>
-        <i className="bi bi-chat-dots display-1 mb-3" style={{ opacity: 0.4 }}></i>
-        <h5 className="fw-semibold">Welcome to ChatConnect 💬</h5>
-        <p className="small">Select a user to start chatting.</p>
-      </div>
-    );
-
-  // Format last seen like "20th December 7:50pm"
-  const formatLastSeen = (dateStr) => {
-    if (!dateStr) return "Offline";
-    const d = new Date(dateStr);
-    const day = d.getDate();
-    const suffix = day % 10 === 1 && day !== 11 ? "st" : day % 10 === 2 && day !== 12 ? "nd" : day % 10 === 3 && day !== 13 ? "rd" : "th";
-    const month = d.toLocaleString("default", { month: "long" });
-    const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase();
-    return `${day}${suffix} ${month} ${time}`;
-  };
-
-  return (
-    <div className={darkMode ? "bg-dark text-light" : "bg-light text-dark"} style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-      {/* Header */}
-      <div className={`d-flex align-items-center justify-content-between border-bottom px-3 py-2 ${darkMode ? "bg-secondary text-light" : "bg-light text-dark"}`}>
-        <div>
-          <h6>{selectedUser.name}</h6>
-          <small>{isTyping ? "Typing..." : formatLastSeen(userLastSeen)}</small>
-        </div>
-        <div className="d-flex gap-2">
-          <button onClick={() => startCall("video")} className="btn btn-sm btn-outline-success">
-            <i className="bi bi-camera-video-fill"></i>
-          </button>
-          <button onClick={() => startCall("audio")} className="btn btn-sm btn-outline-primary">
-            <i className="bi bi-telephone-fill"></i>
-          </button>
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div className="flex-grow-1 overflow-auto p-3" style={{ backgroundColor: darkMode ? "#1e1e1e" : "#f5f7fb" }}>
-        {messages.map((msg) => (
-          <div key={msg._id} className={`d-flex mb-2 ${msg.sender === user._id ? "justify-content-end" : "justify-content-start"}`}>
-            <div className={`p-2 px-3 rounded-3 ${msg.sender === user._id ? "bg-primary text-white" : darkMode ? "bg-secondary text-white" : "bg-white border"}`} style={{ maxWidth: "70%" }}>
-              {/* Text */}
-              {msg.content && <span>{msg.content}</span>}
-
-              {/* Audio */}
-              {msg.fileType === "audio" && msg.fileUrl && (
-                <audio controls src={`${BASE_URL}${msg.fileUrl}`} style={{ width: "100%", marginTop: "5px" }} />
-              )}
-
-              {/* Image */}
-              {msg.fileType === "image" && msg.fileUrl && (
-                <img src={`${BASE_URL}${msg.fileUrl}`} alt="img" style={{ width: "100%", marginTop: "5px", borderRadius: "5px" }} />
-              )}
-
-              {/* Document */}
-              {msg.fileType === "document" && msg.fileUrl && (
-                <a href={`${BASE_URL}${msg.fileUrl}`} target="_blank" rel="noreferrer" className="d-block mt-1">Open File</a>
-              )}
-
-              {/* Time */}
-              <small className="d-block text-end text-muted" style={{ fontSize: "0.75rem" }}>
-                {msg.createdAt
-                  ? new Date(msg.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase()
-                  : "loading..."}
-              </small>
-            </div>
-          </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Emoji Picker */}
-      {showEmojiPicker && (
-        <div ref={emojiRef} className="position-absolute" style={{ bottom: "80px", left: "60px", zIndex: 2000 }}>
-          <EmojiPicker onEmojiClick={handleEmojiClick} height={350} width={300} theme={darkMode ? "dark" : "light"} />
-        </div>
-      )}
-
-      {/* Input & Controls */}
-      <form onSubmit={handleSend} className={`d-flex align-items-center p-3 border-top ${darkMode ? "bg-secondary" : "bg-white"}`}>
-        <button type="button" onClick={handleMicClick} className={`btn me-2 rounded-circle ${recording ? "btn-danger" : "btn-secondary"}`} style={{ width: "40px", height: "40px" }}>
-          <i className="bi bi-mic-fill"></i>
-        </button>
-
-        <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="btn me-2 btn-light rounded-circle">
-          <i className="bi bi-emoji-smile"></i>
-        </button>
-
-        <label className="btn btn-light rounded-circle me-2">
-          <i className="bi bi-paperclip"></i>
-          <input type="file" hidden onChange={handleFileChange} />
-        </label>
-
-        <input type="text" className="form-control me-2 rounded-pill" placeholder="Type a message..." value={text} onChange={handleTyping} />
-
-        <button type="submit" className="btn btn-primary rounded-circle">
-          <i className="bi bi-send-fill"></i>
-        </button>
-      </form>
-
-      {/* Call Component */}
-      {callOpen && (
-        <Call
-          type={callType}
-          setCallOpen={setCallOpen}
-          user={user}
-          selectedUser={selectedUser}
-          socket={socket}
-          incomingCall={incomingCall}
-          setIncomingCall={setIncomingCall}
-        />
-      )}
     </div>
   );
 };

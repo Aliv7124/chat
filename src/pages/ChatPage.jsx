@@ -192,7 +192,7 @@ export default ChatPage;
 */
 
 
-import React, { useContext, useState, useEffect } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import ChatWindow from "../components/ChatWindow";
 import Call from "../Call";
@@ -209,38 +209,46 @@ const socket = io("https://chat-b-7y5f.onrender.com", {
 const ChatPage = () => {
   const { user, logout } = useContext(AuthContext);
   const { darkMode, toggleTheme } = useTheme();
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [callOpen, setCallOpen] = useState(false);
-  const [callType, setCallType] = useState(null);
-  const [callUser, setCallUser] = useState(null);
   const navigate = useNavigate();
 
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [callOpen, setCallOpen] = useState(false);
+  const [callUser, setCallUser] = useState(null);
+  const [callType, setCallType] = useState(null);
+
+  // ================= AUTH CHECK =================
   useEffect(() => {
     if (!user) navigate("/");
-  }, [user, navigate]);
+  }, [user]);
 
+  // ================= SOCKET INIT =================
   useEffect(() => {
-    if (!socket || !user?._id) return;
+    if (!user?._id) return;
+
     socket.emit("userOnline", user._id);
-    socket.on("connect", () => socket.emit("userOnline", user._id));
-    return () => socket.off("connect");
-  }, [user?._id]);
 
-  useEffect(() => {
-    socket.on("incoming-call", ({ from, type }) => {
+    const handleIncomingCall = ({ from, type }) => {
       setCallUser(from);
       setCallType(type);
       setCallOpen(true);
-    });
+    };
 
-    socket.on("call-ended", closeCall);
+    const handleCallEnd = () => {
+      setCallOpen(false);
+      setCallUser(null);
+      setCallType(null);
+    };
+
+    socket.on("incoming-call", handleIncomingCall);
+    socket.on("call-ended", handleCallEnd);
 
     return () => {
-      socket.off("incoming-call");
-      socket.off("call-ended");
+      socket.off("incoming-call", handleIncomingCall);
+      socket.off("call-ended", handleCallEnd);
     };
-  }, []);
+  }, [user]);
 
+  // ================= START CALL =================
   const startCall = (type) => {
     if (!selectedUser) return;
     setCallUser(selectedUser);
@@ -250,57 +258,39 @@ const ChatPage = () => {
 
   const closeCall = () => {
     setCallOpen(false);
-    setCallType(null);
     setCallUser(null);
+    setCallType(null);
   };
 
-  const themeStyles = {
-    light: {
-      bgColor: "#f8f9fa",
-      textColor: "#212529",
-      sidebarBg: "#ffffff",
-      chatBg: "linear-gradient(180deg, #eef3ff 0%, #ffffff 100%)",
-      navBg: "linear-gradient(90deg, #6a11cb 0%, #2575fc 100%)",
-      accent: "#ffffff",
-    },
-    dark: {
-      bgColor: "#121212",
-      textColor: "#e4e4e4",
-      sidebarBg: "#1e1e1e",
-      chatBg: "linear-gradient(180deg, #1a1a1a 0%, #121212 100%)",
-      navBg: "linear-gradient(90deg, #0f2027 0%, #203a43 50%, #2c5364 100%)",
-      accent: "#ffcc00",
-    },
-  };
-
-  const currentTheme = darkMode ? themeStyles.dark : themeStyles.light;
-
+  // ================= UI =================
   return (
     <div
       style={{
-        backgroundColor: currentTheme.bgColor,
-        color: currentTheme.textColor,
+        backgroundColor: darkMode ? "#121212" : "#f8f9fa",
+        color: darkMode ? "#fff" : "#000",
         height: "100vh",
       }}
     >
       <nav
-        className="navbar navbar-expand-lg shadow-sm"
-        style={{ background: currentTheme.navBg }}
+        className="navbar navbar-expand-lg"
+        style={{
+          background: darkMode
+            ? "linear-gradient(90deg,#0f2027,#203a43,#2c5364)"
+            : "linear-gradient(90deg,#6a11cb,#2575fc)",
+        }}
       >
         <div className="container-fluid">
-          <span className="navbar-brand fw-semibold text-white">
-            ChatConnect
-          </span>
-          <div className="ms-auto d-flex align-items-center">
+          <span className="navbar-brand text-white">ChatConnect</span>
+          <div className="d-flex align-items-center gap-3">
             <button
-              className="btn btn-outline-light rounded-circle me-3"
+              className="btn btn-outline-light"
               onClick={toggleTheme}
             >
               {darkMode ? "☀️" : "🌙"}
             </button>
-            <span className="me-3 text-white">{user?.name}</span>
+            <span className="text-white">{user?.name}</span>
             <button
-              className="btn btn-sm btn-outline-light"
+              className="btn btn-outline-light"
               onClick={() => {
                 logout();
                 navigate("/");
@@ -314,10 +304,7 @@ const ChatPage = () => {
 
       <div className="container-fluid p-0">
         <div className="row g-0" style={{ height: "calc(100vh - 56px)" }}>
-          <div
-            className="col-md-3 border-end"
-            style={{ background: currentTheme.sidebarBg }}
-          >
+          <div className="col-md-3 border-end">
             <Sidebar setSelectedUser={setSelectedUser} socket={socket} />
           </div>
 
