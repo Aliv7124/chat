@@ -524,7 +524,6 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
   const BASE_URL =
     import.meta.env.VITE_BACKEND_URL || "https://chat-b-7y5f.onrender.com";
 
-  // Format last seen like "27 December 7:35 PM"
   const formatLastSeen = (timestamp) => {
     if (!timestamp) return "";
     const date = new Date(timestamp);
@@ -538,15 +537,18 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
     return date.toLocaleString("en-US", options);
   };
 
+  // Online emit
   useEffect(() => {
-    if (socket && user) socket.emit("userOnline", user._id);
+    if (socket && user) socket.emit("user-online", user._id);
   }, [socket, user]);
 
+  // Join room
   useEffect(() => {
     if (!socket || !selectedUser) return;
     socket.emit("joinRoom", { userId: user._id, receiverId: selectedUser._id });
   }, [socket, user, selectedUser]);
 
+  // Typing
   useEffect(() => {
     if (!socket) return;
     socket.on("typing", () => setIsTyping(true));
@@ -557,6 +559,7 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
     };
   }, [socket]);
 
+  // Receive messages
   useEffect(() => {
     if (!socket || !selectedUser) return;
     const handleReceive = (message) => {
@@ -574,6 +577,7 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
     return () => socket.off("receiveMessage", handleReceive);
   }, [socket, selectedUser?._id, user?._id]);
 
+  // Fetch messages & last seen
   useEffect(() => {
     const fetchMessages = async () => {
       if (!selectedUser) return;
@@ -603,35 +607,30 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
     fetchLastSeen();
   }, [selectedUser, user]);
 
+  // Online status updates
   useEffect(() => {
-  if (!socket || !selectedUser) return;
+    if (!socket || !selectedUser) return;
 
-  const handleStatus = ({ userId, status, lastSeen }) => {
-    if (userId !== selectedUser._id) return;
+    const handleStatus = ({ userId, status, lastSeen }) => {
+      if (userId !== selectedUser._id) return;
+      if (status === "online") setUserLastSeen("online");
+      else setUserLastSeen(formatLastSeen(lastSeen));
+    };
 
-    if (status === "online") {
-      setUserLastSeen("online");
-    } else {
-      setUserLastSeen(formatLastSeen(lastSeen));
-    }
-  };
+    const handleOnlineUsers = (onlineUsers) => {
+      if (onlineUsers.includes(selectedUser._id)) setUserLastSeen("online");
+    };
 
-  const handleOnlineUsers = (onlineUsers) => {
-    if (onlineUsers.includes(selectedUser._id)) {
-      setUserLastSeen("online");
-    }
-  };
+    socket.on("user-status", handleStatus);
+    socket.on("updateOnlineUsers", handleOnlineUsers);
 
-  socket.on("user-status", handleStatus);
-  socket.on("updateOnlineUsers", handleOnlineUsers);
+    return () => {
+      socket.off("user-status", handleStatus);
+      socket.off("updateOnlineUsers", handleOnlineUsers);
+    };
+  }, [socket, selectedUser]);
 
-  return () => {
-    socket.off("user-status", handleStatus);
-    socket.off("updateOnlineUsers", handleOnlineUsers);
-  };
-}, [socket, selectedUser]);
-
-
+  // Click outside emoji picker
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (emojiRef.current && !emojiRef.current.contains(e.target)) {
@@ -643,12 +642,12 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Scroll to bottom
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "instant" });
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
   }, [messages, selectedUser]);
 
+  // Send message
   const sendMessage = async (formData) => {
     try {
       const res = await API.post("/messages", formData, {
@@ -777,18 +776,12 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
           </small>
         </div>
 
+        {/* Call Buttons */}
         <div className="d-flex gap-2">
-          <button
-            className="btn btn-success btn-sm"
-            onClick={() => startCall("audio")}
-          >
+          <button className="btn btn-success btn-sm" onClick={() => startCall("audio")}>
             📞
           </button>
-
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={() => startCall("video")}
-          >
+          <button className="btn btn-primary btn-sm" onClick={() => startCall("video")}>
             🎥
           </button>
         </div>

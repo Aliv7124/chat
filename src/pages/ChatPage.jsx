@@ -191,7 +191,6 @@ useEffect(() => {
 export default ChatPage;
 */
 
-
 import React, { useContext, useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import ChatWindow from "../components/ChatWindow";
@@ -200,6 +199,7 @@ import { AuthContext } from "../context/AuthContext";
 import { useTheme } from "../ThemeContext";
 import { useNavigate } from "react-router-dom";
 import io from "socket.io-client";
+import API from "../api";
 
 const socket = io("https://chat-b-7y5f.onrender.com", {
   transports: ["websocket"],
@@ -213,17 +213,26 @@ const ChatPage = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [callData, setCallData] = useState(null);
 
+  // Redirect if not logged in
   useEffect(() => {
     if (!user) navigate("/");
   }, [user]);
 
+  // Socket setup
   useEffect(() => {
     if (!user) return;
 
-    socket.emit("userOnline", user._id);
+    // Emit online
+    socket.emit("user-online", user._id);
 
-    socket.on("incoming-call", ({ from, type }) => {
-      setCallData({ user: from, type });
+    // Incoming call
+    socket.on("incoming-call", async ({ from, type }) => {
+      try {
+        const res = await API.get(`/users/${from}`);
+        setCallData({ user: res.data, type });
+      } catch (err) {
+        console.error("Failed to fetch user for incoming call:", err);
+      }
     });
 
     socket.on("call-ended", () => {
@@ -243,6 +252,7 @@ const ChatPage = () => {
         height: "100vh",
       }}
     >
+      {/* Navbar */}
       <nav className="navbar navbar-dark bg-dark px-3">
         <span className="navbar-brand">ChatConnect</span>
         <div>
@@ -255,29 +265,42 @@ const ChatPage = () => {
         </div>
       </nav>
 
+      {/* Main */}
       <div className="d-flex" style={{ height: "calc(100vh - 56px)" }}>
+        {/* Sidebar */}
         <div className="col-3 border-end">
           <Sidebar setSelectedUser={setSelectedUser} socket={socket} />
         </div>
 
-        <div className="col-9">
+        {/* Chat Window */}
+        <div className="col-9 position-relative">
           <ChatWindow
             user={user}
             selectedUser={selectedUser}
             socket={socket}
+            startCall={(type) => {
+              if (!selectedUser) return;
+              setCallData({ user: selectedUser, type });
+            }}
           />
+
+          {/* Call Overlay */}
+          {callData && (
+            <div
+              className="position-absolute top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center"
+              style={{ zIndex: 1000, backgroundColor: "rgba(0,0,0,0.5)" }}
+            >
+              <Call
+                socket={socket}
+                user={user}
+                otherUser={callData.user}
+                type={callData.type}
+                onEnd={() => setCallData(null)}
+              />
+            </div>
+          )}
         </div>
       </div>
-
-      {callData && (
-        <Call
-          socket={socket}
-          user={user}
-          otherUser={callData.user}
-          type={callData.type}
-          onEnd={() => setCallData(null)}
-        />
-      )}
     </div>
   );
 };
