@@ -203,7 +203,6 @@ import io from "socket.io-client";
 
 const socket = io("https://chat-b-7y5f.onrender.com", {
   transports: ["websocket"],
-  withCredentials: true,
 });
 
 const ChatPage = () => {
@@ -212,113 +211,71 @@ const ChatPage = () => {
   const navigate = useNavigate();
 
   const [selectedUser, setSelectedUser] = useState(null);
-  const [callOpen, setCallOpen] = useState(false);
-  const [callUser, setCallUser] = useState(null);
-  const [callType, setCallType] = useState(null);
+  const [callData, setCallData] = useState(null);
 
   useEffect(() => {
     if (!user) navigate("/");
   }, [user]);
 
   useEffect(() => {
-    if (!user?._id) return;
+    if (!user) return;
 
     socket.emit("userOnline", user._id);
 
-    const handleIncomingCall = ({ from, type }) => {
-      setCallUser(from);
-      setCallType(type);
-      setCallOpen(true);
-    };
+    socket.on("incoming-call", ({ from, type }) => {
+      setCallData({ user: from, type });
+    });
 
-    const handleCallEnd = () => {
-      setCallOpen(false);
-      setCallUser(null);
-      setCallType(null);
-    };
-
-    socket.on("incoming-call", handleIncomingCall);
-    socket.on("call-ended", handleCallEnd);
+    socket.on("call-ended", () => {
+      setCallData(null);
+    });
 
     return () => {
-      socket.off("incoming-call", handleIncomingCall);
-      socket.off("call-ended", handleCallEnd);
+      socket.off("incoming-call");
+      socket.off("call-ended");
     };
   }, [user]);
-
-  const startCall = (type) => {
-    if (!selectedUser) return;
-    setCallUser(selectedUser);
-    setCallType(type);
-    setCallOpen(true);
-  };
-
-  const closeCall = () => {
-    setCallOpen(false);
-    setCallUser(null);
-    setCallType(null);
-  };
 
   return (
     <div
       style={{
         backgroundColor: darkMode ? "#121212" : "#f8f9fa",
-        color: darkMode ? "#fff" : "#000",
         height: "100vh",
       }}
     >
-      <nav
-        className="navbar navbar-expand-lg"
-        style={{
-          background: darkMode
-            ? "linear-gradient(90deg,#0f2027,#203a43,#2c5364)"
-            : "linear-gradient(90deg,#6a11cb,#2575fc)",
-        }}
-      >
-        <div className="container-fluid">
-          <span className="navbar-brand text-white">ChatConnect</span>
-          <div className="d-flex align-items-center gap-3">
-            <button className="btn btn-outline-light" onClick={toggleTheme}>
-              {darkMode ? "☀️" : "🌙"}
-            </button>
-            <span className="text-white">{user?.name}</span>
-            <button
-              className="btn btn-outline-light"
-              onClick={() => {
-                logout();
-                navigate("/");
-              }}
-            >
-              Logout
-            </button>
-          </div>
+      <nav className="navbar navbar-dark bg-dark px-3">
+        <span className="navbar-brand">ChatConnect</span>
+        <div>
+          <button className="btn btn-outline-light me-2" onClick={toggleTheme}>
+            🌗
+          </button>
+          <button className="btn btn-danger" onClick={logout}>
+            Logout
+          </button>
         </div>
       </nav>
 
-      <div className="container-fluid p-0">
-        <div className="row g-0" style={{ height: "calc(100vh - 56px)" }}>
-          <div className="col-md-3 border-end">
-            <Sidebar setSelectedUser={setSelectedUser} socket={socket} />
-          </div>
+      <div className="d-flex" style={{ height: "calc(100vh - 56px)" }}>
+        <div className="col-3 border-end">
+          <Sidebar setSelectedUser={setSelectedUser} socket={socket} />
+        </div>
 
-          <div className="col-md-9">
-            <ChatWindow
-              user={user}
-              selectedUser={selectedUser}
-              socket={socket}
-              startCall={startCall}
-            />
-          </div>
+        <div className="col-9">
+          <ChatWindow
+            user={user}
+            selectedUser={selectedUser}
+            socket={socket}
+          />
         </div>
       </div>
 
-      {callOpen && callUser && (
+      {callData && (
         <Call
           socket={socket}
           user={user}
-          otherUser={callUser}
-          type={callType}
-          onEnd={closeCall}
+          otherUser={callData.user}
+          type={callData.type}
+          onEnd={() => setCallData(null)}
         />
       )}
     </div>

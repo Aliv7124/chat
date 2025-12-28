@@ -196,7 +196,6 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
 export default Call;
 */
 
-
 import React, { useEffect, useRef, useState } from "react";
 
 const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
@@ -205,23 +204,21 @@ const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
   const pcRef = useRef(null);
   const streamRef = useRef(null);
 
-  const [state, setState] = useState(null); // calling | incoming | connected
-  const [caller, setCaller] = useState(null);
+  const [state, setState] = useState(null); // idle | calling | incoming | connected
+  const [callerId, setCallerId] = useState(null);
   const [timer, setTimer] = useState(0);
 
-  const iceConfig = {
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-  };
+  const ICE = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
-  // ================= SOCKET EVENTS =================
+  // ================= SOCKET LISTENERS =================
   useEffect(() => {
     socket.on("incoming-call", ({ from }) => {
-      setCaller(from);
+      setCallerId(from);
       setState("incoming");
     });
 
-    socket.on("call-accepted", () => {
-      createOffer(); // ONLY CALLER DOES THIS
+    socket.on("call-accepted", async () => {
+      await createOffer();
     });
 
     socket.on("webrtc-offer", async ({ offer }) => {
@@ -233,8 +230,9 @@ const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
     });
 
     socket.on("webrtc-ice", ({ candidate }) => {
-      if (candidate && pcRef.current)
+      if (candidate && pcRef.current) {
         pcRef.current.addIceCandidate(candidate);
+      }
     });
 
     socket.on("call-ended", cleanup);
@@ -242,17 +240,17 @@ const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
     return () => socket.removeAllListeners();
   }, []);
 
-  // ================= CORE WEBRTC =================
+  // ================= WEBRTC CORE =================
   const createPeer = async () => {
-    pcRef.current = new RTCPeerConnection(iceConfig);
+    pcRef.current = new RTCPeerConnection(ICE);
 
     streamRef.current = await navigator.mediaDevices.getUserMedia({
-      audio: true,
       video: type === "video",
+      audio: true,
     });
 
-    streamRef.current.getTracks().forEach((t) =>
-      pcRef.current.addTrack(t, streamRef.current)
+    streamRef.current.getTracks().forEach((track) =>
+      pcRef.current.addTrack(track, streamRef.current)
     );
 
     pcRef.current.ontrack = (e) => {
@@ -267,8 +265,6 @@ const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
         });
       }
     };
-
-    if (localRef.current) localRef.current.srcObject = streamRef.current;
   };
 
   const createOffer = async () => {
@@ -284,22 +280,22 @@ const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
     await pcRef.current.setRemoteDescription(offer);
     const answer = await pcRef.current.createAnswer();
     await pcRef.current.setLocalDescription(answer);
-    socket.emit("webrtc-answer", { to: caller._id, answer });
+    socket.emit("webrtc-answer", { to: callerId, answer });
     setState("connected");
   };
 
-  // ================= USER ACTIONS =================
+  // ================= ACTIONS =================
   const startCall = () => {
     setState("calling");
-    socket.emit("call-user", { to: otherUser._id, from: user });
+    socket.emit("call-user", { from: user._id, to: otherUser._id });
   };
 
   const acceptCall = () => {
-    socket.emit("accept-call", { to: caller._id });
+    socket.emit("accept-call", { to: callerId });
   };
 
   const endCall = () => {
-    socket.emit("end-call", { to: otherUser?._id || caller?._id });
+    socket.emit("end-call", { to: callerId || otherUser._id });
     cleanup();
   };
 
@@ -308,7 +304,7 @@ const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     pcRef.current = null;
     setState(null);
-    setCaller(null);
+    setCallerId(null);
     setTimer(0);
     onEnd?.();
   };
@@ -320,164 +316,48 @@ const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
     return () => clearInterval(i);
   }, [state]);
 
-  const formatTime = () =>
-    `${String(Math.floor(timer / 60)).padStart(2, "0")}:${String(
-      timer % 60
-    ).padStart(2, "0")}`;
+  const time = `${String(Math.floor(timer / 60)).padStart(2, "0")}:${String(
+    timer % 60
+  ).padStart(2, "0")}`;
 
- return (
-  <div className="call-ui">
-    {state === "connected" && (
-      <>
-        {type === "video" && (
-          <>
-            <video ref={remoteRef} autoPlay playsInline />
-            <video ref={localRef} autoPlay muted playsInline className="pip" />
-          </>
-        )}
-        <div>{formatTime()}</div>
-        <button onClick={endCall}>End</button>
-      </>
-    )}
+  // ================= UI =================
+  return (
+    <div className="call-ui">
+      {state === "connected" && (
+        <>
+          {type === "video" && (
+            <>
+              <video ref={remoteRef} autoPlay playsInline />
+              <video ref={localRef} autoPlay muted playsInline className="pip" />
+            </>
+          )}
+          <div>{time}</div>
+          <button onClick={endCall}>End</button>
+        </>
+      )}
 
-    {state === "calling" && (
-      <div
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          width: "100vw",
-          height: "100vh",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          backgroundColor: "rgba(0,0,0,0.3)",
-          zIndex: 3000,
-        }}
-      >
-        <div
-          style={{
-            backgroundColor: "white",
-            padding: "30px 40px",
-            borderRadius: "10px",
-            textAlign: "center",
-          }}
-        >
+      {state === "calling" && (
+        <div className="overlay">
           <h3>Calling...</h3>
-          <button
-            onClick={endCall}
-            style={{
-              marginTop: "15px",
-              padding: "10px 20px",
-              borderRadius: "8px",
-              border: "none",
-              backgroundColor: "#dc3545",
-              color: "white",
-              cursor: "pointer",
-            }}
-          >
-            Cancel
-          </button>
+          <button onClick={endCall}>Cancel</button>
         </div>
-      </div>
-    )}
+      )}
 
-    {state === "incoming" && (
-      <div
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          width: "100vw",
-          height: "100vh",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          backgroundColor: "rgba(0,0,0,0.3)",
-          zIndex: 3000,
-        }}
-      >
-        <div
-          style={{
-            backgroundColor: "white",
-            padding: "30px 40px",
-            borderRadius: "10px",
-            textAlign: "center",
-          }}
-        >
+      {state === "incoming" && (
+        <div className="overlay">
           <h3>Incoming Call</h3>
-          <div
-            style={{
-              marginTop: "15px",
-              display: "flex",
-              gap: "10px",
-              justifyContent: "center",
-            }}
-          >
-            <button
-              onClick={acceptCall}
-              style={{
-                padding: "10px 20px",
-                borderRadius: "8px",
-                border: "none",
-                backgroundColor: "#198754",
-                color: "white",
-                cursor: "pointer",
-              }}
-            >
-              Accept
-            </button>
-            <button
-              onClick={endCall}
-              style={{
-                padding: "10px 20px",
-                borderRadius: "8px",
-                border: "none",
-                backgroundColor: "#dc3545",
-                color: "white",
-                cursor: "pointer",
-              }}
-            >
-              Reject
-            </button>
-          </div>
+          <button onClick={acceptCall}>Accept</button>
+          <button onClick={endCall}>Reject</button>
         </div>
-      </div>
-    )}
+      )}
 
-    {!state && (
-      <div
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          width: "100vw",
-          height: "100vh",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          backgroundColor: "rgba(0,0,0,0.3)",
-          zIndex: 3000,
-        }}
-      >
-        <button
-          onClick={startCall}
-          style={{
-            padding: "15px 25px",
-            fontSize: "18px",
-            borderRadius: "10px",
-            backgroundColor: type === "video" ? "#0d6efd" : "#198754",
-            color: "white",
-            border: "none",
-            cursor: "pointer",
-          }}
-        >
+      {!state && (
+        <button onClick={startCall}>
           Start {type === "video" ? "Video" : "Audio"} Call
         </button>
-      </div>
-    )}
-  </div>
-);
-}
+      )}
+    </div>
+  );
+};
 
 export default Call;
