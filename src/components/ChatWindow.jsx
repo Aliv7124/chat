@@ -604,36 +604,33 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
   }, [selectedUser, user]);
 
   useEffect(() => {
-    if (!socket || !selectedUser) return;
+  if (!socket || !selectedUser) return;
 
-    let lastOnlineUpdate = 0;
+  const handleStatus = ({ userId, status, lastSeen }) => {
+    if (userId !== selectedUser._id) return;
 
-    const handleUserStatus = ({ userId, status, lastSeen }) => {
-      if (userId !== selectedUser._id) return;
-      const now = Date.now();
-      if (status === "online") {
-        lastOnlineUpdate = now;
-        setUserLastSeen("online");
-      } else if (status === "offline" && lastSeen && now - lastOnlineUpdate > 500) {
-        setUserLastSeen(formatLastSeen(lastSeen));
-      }
-    };
+    if (status === "online") {
+      setUserLastSeen("online");
+    } else {
+      setUserLastSeen(formatLastSeen(lastSeen));
+    }
+  };
 
-    const handleOnlineUsers = (onlineUsers) => {
-      if (onlineUsers.includes(selectedUser._id)) {
-        lastOnlineUpdate = Date.now();
-        setUserLastSeen("online");
-      }
-    };
+  const handleOnlineUsers = (onlineUsers) => {
+    if (onlineUsers.includes(selectedUser._id)) {
+      setUserLastSeen("online");
+    }
+  };
 
-    socket.on("userStatusChange", handleUserStatus);
-    socket.on("updateOnlineUsers", handleOnlineUsers);
+  socket.on("user-status", handleStatus);
+  socket.on("updateOnlineUsers", handleOnlineUsers);
 
-    return () => {
-      socket.off("userStatusChange", handleUserStatus);
-      socket.off("updateOnlineUsers", handleOnlineUsers);
-    };
-  }, [socket, selectedUser]);
+  return () => {
+    socket.off("user-status", handleStatus);
+    socket.off("updateOnlineUsers", handleOnlineUsers);
+  };
+}, [socket, selectedUser]);
+
 
   useEffect(() => {
     const handleClickOutside = (e) => {
