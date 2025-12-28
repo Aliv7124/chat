@@ -607,28 +607,46 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
     fetchLastSeen();
   }, [selectedUser, user]);
 
-  // Online status updates
-  useEffect(() => {
-    if (!socket || !selectedUser) return;
+ // Online status updates (improved)
+useEffect(() => {
+  if (!socket || !selectedUser) return;
 
-    const handleStatus = ({ userId, status, lastSeen }) => {
-      if (userId !== selectedUser._id) return;
-      if (status === "online") setUserLastSeen("online");
-      else setUserLastSeen(formatLastSeen(lastSeen));
-    };
+  const handleStatus = ({ userId, status, lastSeen }) => {
+    if (userId !== selectedUser._id) return;
 
-    const handleOnlineUsers = (onlineUsers) => {
-      if (onlineUsers.includes(selectedUser._id)) setUserLastSeen("online");
-    };
+    // If online, always show "online"
+    if (status === "online") {
+      setUserLastSeen("online");
+    } else {
+      // Only show lastSeen if currently not online
+      setUserLastSeen((prev) => (prev === "online" ? prev : formatLastSeen(lastSeen)));
+    }
+  };
 
-    socket.on("user-status", handleStatus);
-    socket.on("updateOnlineUsers", handleOnlineUsers);
+  const handleOnlineUsers = (onlineUsers) => {
+    if (onlineUsers.includes(selectedUser._id)) {
+      setUserLastSeen("online"); // Online override
+    } else {
+      // Optional: fetch lastSeen from API if user not online
+      API.get(`/users/${selectedUser._id}`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      })
+        .then((res) => {
+          setUserLastSeen(res.data.lastSeen ? formatLastSeen(res.data.lastSeen) : "Offline");
+        })
+        .catch(() => setUserLastSeen("Offline"));
+    }
+  };
 
-    return () => {
-      socket.off("user-status", handleStatus);
-      socket.off("updateOnlineUsers", handleOnlineUsers);
-    };
-  }, [socket, selectedUser]);
+  socket.on("user-status", handleStatus);
+  socket.on("updateOnlineUsers", handleOnlineUsers);
+
+  return () => {
+    socket.off("user-status", handleStatus);
+    socket.off("updateOnlineUsers", handleOnlineUsers);
+  };
+}, [socket, selectedUser]);
+
 
   // Click outside emoji picker
   useEffect(() => {
