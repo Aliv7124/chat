@@ -199,7 +199,6 @@ import { AuthContext } from "../context/AuthContext";
 import { useTheme } from "../ThemeContext";
 import { useNavigate } from "react-router-dom";
 import io from "socket.io-client";
-import API from "../api";
 
 const socket = io("https://chat-b-7y5f.onrender.com", {
   transports: ["websocket"],
@@ -213,26 +212,17 @@ const ChatPage = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [callData, setCallData] = useState(null);
 
-  // Redirect if not logged in
   useEffect(() => {
     if (!user) navigate("/");
   }, [user]);
 
-  // Socket setup
   useEffect(() => {
     if (!user) return;
 
-    // Emit online
     socket.emit("user-online", user._id);
 
-    // Incoming call
-    socket.on("incoming-call", async ({ from, type }) => {
-      try {
-        const res = await API.get(`/users/${from}`);
-        setCallData({ user: res.data, type });
-      } catch (err) {
-        console.error("Failed to fetch user for incoming call:", err);
-      }
+    socket.on("incoming-call", ({ from, type }) => {
+      setCallData({ user: from, type });
     });
 
     socket.on("call-ended", () => {
@@ -246,13 +236,7 @@ const ChatPage = () => {
   }, [user]);
 
   return (
-    <div
-      style={{
-        backgroundColor: darkMode ? "#121212" : "#f8f9fa",
-        height: "100vh",
-      }}
-    >
-      {/* Navbar */}
+    <div style={{ height: "100vh", background: darkMode ? "#121212" : "#f8f9fa" }}>
       <nav className="navbar navbar-dark bg-dark px-3">
         <span className="navbar-brand">ChatConnect</span>
         <div>
@@ -265,14 +249,11 @@ const ChatPage = () => {
         </div>
       </nav>
 
-      {/* Main */}
       <div className="d-flex" style={{ height: "calc(100vh - 56px)" }}>
-        {/* Sidebar */}
         <div className="col-3 border-end">
           <Sidebar setSelectedUser={setSelectedUser} socket={socket} />
         </div>
 
-        {/* Chat Window */}
         <div className="col-9 position-relative">
           <ChatWindow
             user={user}
@@ -284,11 +265,10 @@ const ChatPage = () => {
             }}
           />
 
-          {/* Call Overlay */}
           {callData && (
             <div
               className="position-absolute top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center"
-              style={{ zIndex: 1000, backgroundColor: "rgba(0,0,0,0.5)" }}
+              style={{ background: "rgba(0,0,0,0.6)", zIndex: 9999 }}
             >
               <Call
                 socket={socket}

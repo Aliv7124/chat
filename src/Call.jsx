@@ -196,6 +196,7 @@ const Call = ({ socket, user, selectedUser, type = "video", onClose }) => {
 export default Call;
 */
 
+
 import React, { useEffect, useRef, useState } from "react";
 
 const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
@@ -204,43 +205,11 @@ const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
   const pcRef = useRef(null);
   const streamRef = useRef(null);
 
-  const [state, setState] = useState(null); // idle | calling | incoming | connected
-  const [callerId, setCallerId] = useState(null);
+  const [connected, setConnected] = useState(false);
   const [timer, setTimer] = useState(0);
 
   const ICE = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
-  // ================= SOCKET LISTENERS =================
-  useEffect(() => {
-    socket.on("incoming-call", ({ from }) => {
-      setCallerId(from);
-      setState("incoming");
-    });
-
-    socket.on("call-accepted", async () => {
-      await createOffer();
-    });
-
-    socket.on("webrtc-offer", async ({ offer }) => {
-      await createAnswer(offer);
-    });
-
-    socket.on("webrtc-answer", async ({ answer }) => {
-      await pcRef.current.setRemoteDescription(answer);
-    });
-
-    socket.on("webrtc-ice", ({ candidate }) => {
-      if (candidate && pcRef.current) {
-        pcRef.current.addIceCandidate(candidate);
-      }
-    });
-
-    socket.on("call-ended", cleanup);
-
-    return () => socket.removeAllListeners();
-  }, []);
-
-  // ================= WEBRTC CORE =================
   const createPeer = async () => {
     pcRef.current = new RTCPeerConnection(ICE);
 
@@ -249,15 +218,15 @@ const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
       audio: true,
     });
 
-    streamRef.current.getTracks().forEach((track) =>
+    streamRef.current.getTracks().forEach(track =>
       pcRef.current.addTrack(track, streamRef.current)
     );
 
-    pcRef.current.ontrack = (e) => {
+    pcRef.current.ontrack = e => {
       remoteRef.current.srcObject = e.streams[0];
     };
 
-    pcRef.current.onicecandidate = (e) => {
+    pcRef.current.onicecandidate = e => {
       if (e.candidate) {
         socket.emit("webrtc-ice", {
           to: otherUser._id,
@@ -267,63 +236,67 @@ const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
     };
   };
 
-  const createOffer = async () => {
+  useEffect(() => {
+    socket.on("webrtc-offer", async ({ offer }) => {
+      await createPeer();
+      await pcRef.current.setRemoteDescription(offer);
+      const answer = await pcRef.current.createAnswer();
+      await pcRef.current.setLocalDescription(answer);
+      socket.emit("webrtc-answer", { to: otherUser._id, answer });
+      setConnected(true);
+    });
+
+    socket.on("webrtc-answer", async ({ answer }) => {
+      await pcRef.current.setRemoteDescription(answer);
+      setConnected(true);
+    });
+
+    socket.on("webrtc-ice", ({ candidate }) => {
+      if (candidate) pcRef.current.addIceCandidate(candidate);
+    });
+
+    socket.on("call-ended", cleanup);
+
+    return () => {
+      socket.off("webrtc-offer");
+      socket.off("webrtc-answer");
+      socket.off("webrtc-ice");
+      socket.off("call-ended");
+    };
+  }, []);
+
+  const startCall = async () => {
     await createPeer();
     const offer = await pcRef.current.createOffer();
     await pcRef.current.setLocalDescription(offer);
     socket.emit("webrtc-offer", { to: otherUser._id, offer });
-    setState("connected");
-  };
-
-  const createAnswer = async (offer) => {
-    await createPeer();
-    await pcRef.current.setRemoteDescription(offer);
-    const answer = await pcRef.current.createAnswer();
-    await pcRef.current.setLocalDescription(answer);
-    socket.emit("webrtc-answer", { to: callerId, answer });
-    setState("connected");
-  };
-
-  // ================= ACTIONS =================
-  const startCall = () => {
-    setState("calling");
-    socket.emit("call-user", { from: user._id, to: otherUser._id });
-  };
-
-  const acceptCall = () => {
-    socket.emit("accept-call", { to: callerId });
-  };
-
-  const endCall = () => {
-    socket.emit("end-call", { to: callerId || otherUser._id });
-    cleanup();
   };
 
   const cleanup = () => {
     pcRef.current?.close();
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    pcRef.current = null;
-    setState(null);
-    setCallerId(null);
-    setTimer(0);
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    setConnected(false);
     onEnd?.();
   };
 
-  // ================= TIMER =================
+  const endCall = () => {
+    socket.emit("end-call", { to: otherUser._id });
+    cleanup();
+  };
+
   useEffect(() => {
-    if (state !== "connected") return;
-    const i = setInterval(() => setTimer((t) => t + 1), 1000);
-    return () => clearInterval(i);
-  }, [state]);
+    if (!connected) return;
+    const t = setInterval(() => setTimer(t => t + 1), 1000);
+    return () => clearInterval(t);
+  }, [connected]);
 
   const time = `${String(Math.floor(timer / 60)).padStart(2, "0")}:${String(
     timer % 60
   ).padStart(2, "0")}`;
 
-  // ================= UI =================
   return (
     <div className="call-ui">
-      {state === "connected" && (
+      {connected ? (
         <>
           {type === "video" && (
             <>
@@ -334,24 +307,7 @@ const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
           <div>{time}</div>
           <button onClick={endCall}>End</button>
         </>
-      )}
-
-      {state === "calling" && (
-        <div className="overlay">
-          <h3>Calling...</h3>
-          <button onClick={endCall}>Cancel</button>
-        </div>
-      )}
-
-      {state === "incoming" && (
-        <div className="overlay">
-          <h3>Incoming Call</h3>
-          <button onClick={acceptCall}>Accept</button>
-          <button onClick={endCall}>Reject</button>
-        </div>
-      )}
-
-      {!state && (
+      ) : (
         <button onClick={startCall}>
           Start {type === "video" ? "Video" : "Audio"} Call
         </button>

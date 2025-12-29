@@ -795,14 +795,34 @@ useEffect(() => {
         </div>
 
         {/* Call Buttons */}
-        <div className="d-flex gap-2">
-          <button className="btn btn-success btn-sm" onClick={() => startCall("audio")}>
-            📞
-          </button>
-          <button className="btn btn-primary btn-sm" onClick={() => startCall("video")}>
-            🎥
-          </button>
-        </div>
+      <div className="d-flex gap-2">
+  <button
+    className="btn btn-success btn-sm"
+    onClick={() => {
+      socket.emit("call-user", {
+        from: user._id,
+        to: selectedUser._id,
+        type: "audio",
+      });
+    }}
+  >
+    📞
+  </button>
+
+  <button
+    className="btn btn-primary btn-sm"
+    onClick={() => {
+      socket.emit("call-user", {
+        from: user._id,
+        to: selectedUser._id,
+        type: "video",
+      });
+    }}
+  >
+    🎥
+  </button>
+</div>
+
       </div>
 
       {/* MESSAGES */}
