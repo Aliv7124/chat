@@ -501,7 +501,6 @@ export default ChatWindow;
 
 */
 
-
 import React, { useEffect, useState, useRef } from "react";
 import EmojiPicker from "emoji-picker-react";
 import API from "../api";
@@ -521,34 +520,27 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
   const emojiRef = useRef(null);
   const messagesEndRef = useRef(null);
 
-  const BASE_URL =
-    import.meta.env.VITE_BACKEND_URL || "https://chat-b-7y5f.onrender.com";
+  const BASE_URL = import.meta.env.VITE_BACKEND_URL || "https://chat-b-7y5f.onrender.com";
 
   const formatLastSeen = (timestamp) => {
     if (!timestamp) return "";
     const date = new Date(timestamp);
-    const options = {
-      day: "2-digit",
-      month: "long",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    };
+    const options = { day: "2-digit", month: "long", hour: "numeric", minute: "2-digit", hour12: true };
     return date.toLocaleString("en-US", options);
   };
 
-  // Online emit
+  // ===== ONLINE STATUS =====
   useEffect(() => {
     if (socket && user) socket.emit("user-online", user._id);
   }, [socket, user]);
 
-  // Join room
+  // ===== JOIN ROOM =====
   useEffect(() => {
     if (!socket || !selectedUser) return;
     socket.emit("joinRoom", { userId: user._id, receiverId: selectedUser._id });
   }, [socket, user, selectedUser]);
 
-  // Typing
+  // ===== TYPING INDICATOR =====
   useEffect(() => {
     if (!socket) return;
     socket.on("typing", () => setIsTyping(true));
@@ -559,7 +551,7 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
     };
   }, [socket]);
 
-  // Receive messages
+  // ===== RECEIVE MESSAGES =====
   useEffect(() => {
     if (!socket || !selectedUser) return;
     const handleReceive = (message) => {
@@ -567,17 +559,14 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
         (message.sender === selectedUser._id && message.receiver === user._id) ||
         (message.sender === user._id && message.receiver === selectedUser._id);
       if (isForThisChat) {
-        setMessages((prev) => {
-          if (prev.some((m) => m._id === message._id)) return prev;
-          return [...prev, message];
-        });
+        setMessages((prev) => (prev.some((m) => m._id === message._id) ? prev : [...prev, message]));
       }
     };
     socket.on("receiveMessage", handleReceive);
     return () => socket.off("receiveMessage", handleReceive);
   }, [socket, selectedUser?._id, user?._id]);
 
-  // Fetch messages & last seen
+  // ===== FETCH MESSAGES & LAST SEEN =====
   useEffect(() => {
     const fetchMessages = async () => {
       if (!selectedUser) return;
@@ -607,75 +596,40 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
     fetchLastSeen();
   }, [selectedUser, user]);
 
- // Online status updates (improved)
-useEffect(() => {
-  if (!socket || !selectedUser) return;
-
-  const handleStatus = ({ userId, status, lastSeen }) => {
-    if (userId !== selectedUser._id) return;
-
-    // If online, always show "online"
-    if (status === "online") {
-      setUserLastSeen("online");
-    } else {
-      // Only show lastSeen if currently not online
-      setUserLastSeen((prev) => (prev === "online" ? prev : formatLastSeen(lastSeen)));
-    }
-  };
-
-  const handleOnlineUsers = (onlineUsers) => {
-    if (onlineUsers.includes(selectedUser._id)) {
-      setUserLastSeen("online"); // Online override
-    } else {
-      // Optional: fetch lastSeen from API if user not online
-      API.get(`/users/${selectedUser._id}`, {
-        headers: { Authorization: `Bearer ${user.token}` },
-      })
-        .then((res) => {
-          setUserLastSeen(res.data.lastSeen ? formatLastSeen(res.data.lastSeen) : "Offline");
-        })
-        .catch(() => setUserLastSeen("Offline"));
-    }
-  };
-
-  socket.on("user-status", handleStatus);
-  socket.on("updateOnlineUsers", handleOnlineUsers);
-
-  return () => {
-    socket.off("user-status", handleStatus);
-    socket.off("updateOnlineUsers", handleOnlineUsers);
-  };
-}, [socket, selectedUser]);
-
-
-  // Click outside emoji picker
+  // ===== ONLINE STATUS UPDATE =====
   useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (emojiRef.current && !emojiRef.current.contains(e.target)) {
-        setShowEmojiPicker(false);
-        setActiveMenu(null);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    if (!socket || !selectedUser) return;
 
-  // Scroll to bottom
+    const handleStatus = ({ userId, status, lastSeen }) => {
+      if (userId !== selectedUser._id) return;
+      setUserLastSeen(status === "online" ? "online" : formatLastSeen(lastSeen));
+    };
+
+    const handleOnlineUsers = (onlineUsers) => {
+      setUserLastSeen(onlineUsers.includes(selectedUser._id) ? "online" : userLastSeen);
+    };
+
+    socket.on("user-status", handleStatus);
+    socket.on("updateOnlineUsers", handleOnlineUsers);
+
+    return () => {
+      socket.off("user-status", handleStatus);
+      socket.off("updateOnlineUsers", handleOnlineUsers);
+    };
+  }, [socket, selectedUser, userLastSeen]);
+
+  // ===== SCROLL TO BOTTOM =====
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
   }, [messages, selectedUser]);
 
-  // Send message
+  // ===== SEND MESSAGE =====
   const sendMessage = async (formData) => {
     try {
       const res = await API.post("/messages", formData, {
-        headers: {
-          Authorization: `Bearer ${user.token}`,
-          "Content-Type": "multipart/form-data",
-        },
+        headers: { Authorization: `Bearer ${user.token}`, "Content-Type": "multipart/form-data" },
       });
-      const newMsg = res.data;
-      socket.emit("sendMessage", newMsg);
+      socket.emit("sendMessage", res.data);
     } catch (err) {
       console.error(err);
     }
@@ -694,11 +648,10 @@ useEffect(() => {
   const handleTyping = (e) => {
     setText(e.target.value);
     if (!socket || !selectedUser) return;
-    socket.emit("typing", [user._id, selectedUser._id].sort().join("_"));
+    const roomId = [user._id, selectedUser._id].sort().join("_");
+    socket.emit("typing", roomId);
     clearTimeout(window.typingTimeout);
-    window.typingTimeout = setTimeout(() => {
-      socket.emit("stopTyping", [user._id, selectedUser._id].sort().join("_"));
-    }, 1500);
+    window.typingTimeout = setTimeout(() => socket.emit("stopTyping", roomId), 1500);
   };
 
   const handleFileChange = async (e) => {
@@ -735,288 +688,93 @@ useEffect(() => {
 
   const handleEmojiClick = (emojiData) => setText((p) => p + emojiData.emoji);
 
-  const handleDeleteMessage = async (msgId) => {
-    try {
-      await API.delete(`/messages/${msgId}`, {
-        headers: { Authorization: `Bearer ${user.token}` },
-      });
-      setMessages((prev) => prev.filter((m) => m._id !== msgId));
-      socket.emit("deleteMessage", msgId);
-      setActiveMenu(null);
-    } catch (err) {
-      console.error("Delete failed:", err);
-    }
-  };
-
-  if (!selectedUser)
+  // ===== RENDER =====
+  if (!selectedUser) {
     return (
-      <div
-        className={`d-flex flex-column justify-content-center align-items-center text-center h-100 ${
-          darkMode ? "bg-dark text-light" : "bg-light text-dark"
-        }`}
-      >
+      <div className={`d-flex flex-column justify-content-center align-items-center h-100 ${darkMode ? "bg-dark text-light" : "bg-light text-dark"}`}>
         <i className="bi bi-chat-dots display-1 mb-3" style={{ opacity: 0.4 }}></i>
         <h5 className="fw-semibold">Welcome to ChatConnect 💬</h5>
         <p className="small">Select a user to start chatting.</p>
       </div>
     );
+  }
 
   return (
-    <div
-      style={{
-        height: "100dvh",
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-      }}
-      className={darkMode ? "bg-dark text-light" : "bg-light text-dark"}
-    >
+    <div style={{ height: "100dvh", display: "flex", flexDirection: "column" }} className={darkMode ? "bg-dark text-light" : "bg-light text-dark"}>
       {/* HEADER */}
-      <div
-        className={`d-flex align-items-center justify-content-between border-bottom px-3 py-2 ${
-          darkMode ? "bg-secondary text-light" : "bg-light text-dark"
-        }`}
-        style={{
-          position: "sticky",
-          top: 0,
-          zIndex: 20,
-          minHeight: "60px",
-        }}
-      >
+      <div className={`d-flex align-items-center justify-content-between border-bottom px-3 py-2 ${darkMode ? "bg-secondary text-light" : "bg-light text-dark"}`} style={{ position: "sticky", top: 0, zIndex: 20, minHeight: "60px" }}>
         <div>
           <h6 className="mb-0 fw-semibold">{selectedUser.name}</h6>
-          <small className="text-muted">
-            {isTyping
-              ? "Typing..."
-              : userLastSeen === "online"
-              ? "Online"
-              : userLastSeen || "Offline"}
-          </small>
+          <small className="text-muted">{isTyping ? "Typing..." : userLastSeen || "Offline"}</small>
         </div>
 
-        {/* Call Buttons */}
-      <div className="d-flex gap-2">
-  <button
-    className="btn btn-success btn-sm"
-    onClick={() => {
-      socket.emit("call-user", {
-        from: user._id,
-        to: selectedUser._id,
-        type: "audio",
-      });
-    }}
-  >
-    📞
-  </button>
-
-  <button
-    className="btn btn-primary btn-sm"
-    onClick={() => {
-      socket.emit("call-user", {
-        from: user._id,
-        to: selectedUser._id,
-        type: "video",
-      });
-    }}
-  >
-    🎥
-  </button>
-</div>
-
+        {/* CALL BUTTONS */}
+        <div className="d-flex gap-2">
+          <button className="btn btn-success btn-sm" onClick={() => startCall("audio")}>📞</button>
+          <button className="btn btn-primary btn-sm" onClick={() => startCall("video")}>🎥</button>
+        </div>
       </div>
 
       {/* MESSAGES */}
-      <div
-        className="flex-grow-1 p-3 overflow-auto"
-        style={{
-          backgroundColor: darkMode ? "#1e1e1e" : "#f5f7fb",
-          scrollbarWidth: "none",
-          msOverflowStyle: "none",
-        }}
-      >
-        <style>{`div::-webkit-scrollbar{display:none;}`}</style>
-        {messages.length === 0 ? (
-          <p className="text-center text-muted mt-5">
-            No messages yet. Start the conversation!
-          </p>
-        ) : (
-          messages.map((msg) => (
-            <div
-              key={msg._id}
-              className={`d-flex mb-2 ${
-                msg.sender === user._id ? "justify-content-end" : "justify-content-start"
-              }`}
-            >
-              <div
-                className={`p-2 px-3 rounded-3 shadow-sm position-relative ${
-                  msg.sender === user._id
-                    ? "bg-primary text-white"
-                    : darkMode
-                    ? "bg-secondary text-white"
-                    : "bg-white border"
-                }`}
-                style={{ maxWidth: "70%" }}
-              >
+      <div className="flex-grow-1 p-3 overflow-auto" style={{ backgroundColor: darkMode ? "#1e1e1e" : "#f5f7fb" }}>
+        <div style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          {messages.length === 0 ? (
+            <p className="text-center text-muted mt-5">No messages yet. Start the conversation!</p>
+          ) : messages.map((msg) => (
+            <div key={msg._id} className={`d-flex mb-2 ${msg.sender === user._id ? "justify-content-end" : "justify-content-start"}`}>
+              <div className={`p-2 px-3 rounded-3 shadow-sm position-relative ${msg.sender === user._id ? "bg-primary text-white" : darkMode ? "bg-secondary text-white" : "bg-white border"}`} style={{ maxWidth: "70%" }}>
                 {msg.sender === user._id && (
                   <div className="position-absolute" style={{ top: "4px", right: "-20px" }}>
-                    <button
-                      onClick={() =>
-                        setActiveMenu(activeMenu === msg._id ? null : msg._id)
-                      }
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        fontSize: "18px",
-                        cursor: "pointer",
-                        color: darkMode ? "#ccc" : "#666",
-                      }}
-                    >
-                      ⋮
-                    </button>
-
+                    <button onClick={() => setActiveMenu(activeMenu === msg._id ? null : msg._id)} style={{ background: "transparent", border: "none", fontSize: "18px", cursor: "pointer", color: darkMode ? "#ccc" : "#666" }}>⋮</button>
                     {activeMenu === msg._id && (
-                      <div
-                        className={`position-absolute border rounded shadow-sm p-1 ${
-                          darkMode ? "bg-dark text-light" : "bg-white"
-                        }`}
-                        style={{
-                          right: "0",
-                          top: "24px",
-                          zIndex: 100,
-                          minWidth: "120px",
-                        }}
-                      >
-                        <button
-                          onClick={() => handleDeleteMessage(msg._id)}
-                          className="dropdown-item text-danger small"
-                        >
-                          <i className="bi bi-trash me-1"></i> Delete Message
-                        </button>
+                      <div className={`position-absolute border rounded shadow-sm p-1 ${darkMode ? "bg-dark text-light" : "bg-white"}`} style={{ right: "0", top: "24px", zIndex: 100, minWidth: "120px" }}>
+                        <button className="dropdown-item text-danger small">Delete Message</button>
                       </div>
                     )}
                   </div>
                 )}
 
-                {msg.fileType === "image" ? (
-                  <img
-                    src={`${BASE_URL}${msg.fileUrl}`}
-                    alt="Sent"
-                    className="img-fluid rounded"
-                    style={{ maxHeight: "200px" }}
-                  />
-                ) : msg.fileType === "audio" ? (
-                  <audio controls src={`${BASE_URL}${msg.fileUrl}`} />
-                ) : msg.fileType === "document" ? (
-                  <a
-                    href={`${BASE_URL}${msg.fileUrl}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={darkMode ? "text-info" : ""}
-                  >
-                    {msg.fileUrl.split("/").pop()}
-                  </a>
-                ) : (
-                  <div>{msg.content}</div>
-                )}
+                {msg.fileType === "image" ? <img src={`${BASE_URL}${msg.fileUrl}`} alt="Sent" className="img-fluid rounded" style={{ maxHeight: "200px" }} /> :
+                 msg.fileType === "audio" ? <audio controls src={`${BASE_URL}${msg.fileUrl}`} /> :
+                 msg.fileType === "document" ? <a href={`${BASE_URL}${msg.fileUrl}`} target="_blank" rel="noopener noreferrer" className={darkMode ? "text-info" : ""}>{msg.fileUrl.split("/").pop()}</a> :
+                 <div>{msg.content}</div>
+                }
 
-                <small
-                  className="d-block text-end text-muted"
-                  style={{ fontSize: "0.75rem" }}
-                >
-                  {new Date(msg.createdAt).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </small>
+                <small className="d-block text-end text-muted" style={{ fontSize: "0.75rem" }}>{new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small>
               </div>
             </div>
-          ))
-        )}
-        <div ref={messagesEndRef} />
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {/* INPUT */}
       {showEmojiPicker && (
-        <div
-          ref={emojiRef}
-          className={`position-fixed rounded shadow-lg p-2 ${
-            darkMode ? "bg-dark text-light" : "bg-white text-dark"
-          }`}
-          style={{
-            bottom: "90px",
-            left: "60px",
-            zIndex: 2000,
-            transition: "all 0.2s ease",
-          }}
-        >
+        <div ref={emojiRef} className={`position-fixed rounded shadow-lg p-2 ${darkMode ? "bg-dark text-light" : "bg-white text-dark"}`} style={{ bottom: "90px", left: "60px", zIndex: 2000 }}>
           <div className="d-flex justify-content-between align-items-center mb-1">
-            <small className="fw-semibold">
-              {darkMode ? "Pick Emoji 🌙" : "Pick Emoji ☀️"}
-            </small>
-            <button
-              type="button"
-              className="btn-close btn-sm"
-              onClick={() => setShowEmojiPicker(false)}
-            ></button>
+            <small className="fw-semibold">{darkMode ? "Pick Emoji 🌙" : "Pick Emoji ☀️"}</small>
+            <button type="button" className="btn-close btn-sm" onClick={() => setShowEmojiPicker(false)}></button>
           </div>
-          <EmojiPicker
-            onEmojiClick={handleEmojiClick}
-            height={350}
-            width={300}
-            theme={darkMode ? "dark" : "light"}
-          />
+          <EmojiPicker onEmojiClick={handleEmojiClick} height={350} width={300} theme={darkMode ? "dark" : "light"} />
         </div>
       )}
 
-      <form
-        onSubmit={handleSend}
-        className={`p-3 border-top d-flex align-items-center position-relative ${
-          darkMode ? "bg-secondary" : "bg-white"
-        }`}
-      >
-        <button
-          type="button"
-          onClick={handleMicClick}
-          className={`btn me-2 rounded-circle ${recording ? "btn-danger" : "btn-secondary"}`}
-          style={{ width: "40px", height: "40px" }}
-        >
+      <form onSubmit={handleSend} className={`p-3 border-top d-flex align-items-center position-relative ${darkMode ? "bg-secondary" : "bg-white"}`}>
+        <button type="button" onClick={handleMicClick} className={`btn me-2 rounded-circle ${recording ? "btn-danger" : "btn-secondary"}`} style={{ width: "40px", height: "40px" }}>
           <i className="bi bi-mic-fill"></i>
         </button>
 
-        <button
-          type="button"
-          onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-          className={`btn rounded-circle me-2 d-flex align-items-center justify-content-center ${
-            darkMode ? "btn-dark" : "btn-light"
-          }`}
-          style={{ width: "40px", height: "40px" }}
-        >
+        <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)} className={`btn rounded-circle me-2 d-flex align-items-center justify-content-center ${darkMode ? "btn-dark" : "btn-light"}`} style={{ width: "40px", height: "40px" }}>
           <i className="bi bi-emoji-smile fs-5"></i>
         </button>
 
-        <label
-          className={`btn rounded-circle me-2 d-flex align-items-center justify-content-center ${
-            darkMode ? "btn-dark" : "btn-secondary"
-          }`}
-          style={{ width: "40px", height: "40px", cursor: "pointer" }}
-        >
+        <label className={`btn rounded-circle me-2 d-flex align-items-center justify-content-center ${darkMode ? "btn-dark" : "btn-secondary"}`} style={{ width: "40px", height: "40px", cursor: "pointer" }}>
           <i className="bi bi-paperclip"></i>
           <input type="file" hidden onChange={handleFileChange} />
         </label>
 
-        <input
-          type="text"
-          className="form-control me-2 rounded-pill"
-          placeholder="Type a message..."
-          value={text}
-          onChange={handleTyping}
-        />
-
-        <button
-          type="submit"
-          className="btn btn-primary rounded-circle d-flex align-items-center justify-content-center"
-          style={{ width: "40px", height: "40px" }}
-        >
+        <input type="text" className="form-control me-2 rounded-pill" placeholder="Type a message..." value={text} onChange={handleTyping} />
+        <button type="submit" className="btn btn-primary rounded-circle d-flex align-items-center justify-content-center" style={{ width: "40px", height: "40px" }}>
           <i className="bi bi-send-fill"></i>
         </button>
       </form>

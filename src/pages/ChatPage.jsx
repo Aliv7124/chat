@@ -191,6 +191,7 @@ useEffect(() => {
 export default ChatPage;
 */
 
+
 import React, { useContext, useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import ChatWindow from "../components/ChatWindow";
@@ -208,7 +209,6 @@ const ChatPage = () => {
   const { user, logout } = useContext(AuthContext);
   const { darkMode, toggleTheme } = useTheme();
   const navigate = useNavigate();
-
   const [selectedUser, setSelectedUser] = useState(null);
   const [callData, setCallData] = useState(null);
 
@@ -218,17 +218,9 @@ const ChatPage = () => {
 
   useEffect(() => {
     if (!user) return;
-
     socket.emit("user-online", user._id);
-
-    socket.on("incoming-call", ({ from, type }) => {
-      setCallData({ user: from, type });
-    });
-
-    socket.on("call-ended", () => {
-      setCallData(null);
-    });
-
+    socket.on("incoming-call", ({ from, type }) => setCallData({ user: from, type }));
+    socket.on("call-ended", () => setCallData(null));
     return () => {
       socket.off("incoming-call");
       socket.off("call-ended");
@@ -240,12 +232,8 @@ const ChatPage = () => {
       <nav className="navbar navbar-dark bg-dark px-3">
         <span className="navbar-brand">ChatConnect</span>
         <div>
-          <button className="btn btn-outline-light me-2" onClick={toggleTheme}>
-            🌗
-          </button>
-          <button className="btn btn-danger" onClick={logout}>
-            Logout
-          </button>
+          <button className="btn btn-outline-light me-2" onClick={toggleTheme}>🌗</button>
+          <button className="btn btn-danger" onClick={logout}>Logout</button>
         </div>
       </nav>
 
@@ -253,30 +241,16 @@ const ChatPage = () => {
         <div className="col-3 border-end">
           <Sidebar setSelectedUser={setSelectedUser} socket={socket} />
         </div>
-
         <div className="col-9 position-relative">
           <ChatWindow
             user={user}
             selectedUser={selectedUser}
             socket={socket}
-            startCall={(type) => {
-              if (!selectedUser) return;
-              setCallData({ user: selectedUser, type });
-            }}
+            startCall={(type) => selectedUser && setCallData({ user: selectedUser, type })}
           />
-
           {callData && (
-            <div
-              className="position-absolute top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center"
-              style={{ background: "rgba(0,0,0,0.6)", zIndex: 9999 }}
-            >
-              <Call
-                socket={socket}
-                user={user}
-                otherUser={callData.user}
-                type={callData.type}
-                onEnd={() => setCallData(null)}
-              />
+            <div className="position-absolute top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center" style={{ background: "rgba(0,0,0,0.6)", zIndex: 9999 }}>
+              <Call socket={socket} user={user} otherUser={callData.user} type={callData.type} onEnd={() => setCallData(null)} />
             </div>
           )}
         </div>

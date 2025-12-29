@@ -199,119 +199,97 @@ export default Call;
 
 import React, { useEffect, useRef, useState } from "react";
 
-const Call = ({ socket, user, otherUser, type = "video", onEnd }) => {
-  const localRef = useRef(null);
-  const remoteRef = useRef(null);
+const ICE_SERVERS = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+
+const Call = ({ socket, user, otherUser, type, onEnd }) => {
+  const localVideoRef = useRef();
+  const remoteVideoRef = useRef();
   const pcRef = useRef(null);
-  const streamRef = useRef(null);
-
-  const [connected, setConnected] = useState(false);
-  const [timer, setTimer] = useState(0);
-
-  const ICE = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
-
-  const createPeer = async () => {
-    pcRef.current = new RTCPeerConnection(ICE);
-
-    streamRef.current = await navigator.mediaDevices.getUserMedia({
-      video: type === "video",
-      audio: true,
-    });
-
-    streamRef.current.getTracks().forEach(track =>
-      pcRef.current.addTrack(track, streamRef.current)
-    );
-
-    pcRef.current.ontrack = e => {
-      remoteRef.current.srcObject = e.streams[0];
-    };
-
-    pcRef.current.onicecandidate = e => {
-      if (e.candidate) {
-        socket.emit("webrtc-ice", {
-          to: otherUser._id,
-          candidate: e.candidate,
-        });
-      }
-    };
-  };
+  const [callActive, setCallActive] = useState(false);
 
   useEffect(() => {
+    const startCall = async () => {
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+      pcRef.current = pc;
+
+      const stream = await navigator.mediaDevices.getUserMedia({ video: type === "video", audio: true });
+      localVideoRef.current.srcObject = stream;
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+      pc.ontrack = (event) => {
+        remoteVideoRef.current.srcObject = event.streams[0];
+      };
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit("webrtc-ice", { to: otherUser, candidate: event.candidate });
+        }
+      };
+
+      // Call flow
+      if (type) {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit("webrtc-offer", { to: otherUser, offer });
+      }
+    };
+
+    startCall();
+
     socket.on("webrtc-offer", async ({ offer }) => {
-      await createPeer();
-      await pcRef.current.setRemoteDescription(offer);
-      const answer = await pcRef.current.createAnswer();
-      await pcRef.current.setLocalDescription(answer);
-      socket.emit("webrtc-answer", { to: otherUser._id, answer });
-      setConnected(true);
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+      pcRef.current = pc;
+
+      const stream = await navigator.mediaDevices.getUserMedia({ video: type === "video", audio: true });
+      localVideoRef.current.srcObject = stream;
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+      pc.ontrack = (event) => {
+        remoteVideoRef.current.srcObject = event.streams[0];
+      };
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) socket.emit("webrtc-ice", { to: otherUser, candidate: event.candidate });
+      };
+
+      await pc.setRemoteDescription(offer);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("webrtc-answer", { to: otherUser, answer });
+      setCallActive(true);
     });
 
     socket.on("webrtc-answer", async ({ answer }) => {
       await pcRef.current.setRemoteDescription(answer);
-      setConnected(true);
+      setCallActive(true);
     });
 
-    socket.on("webrtc-ice", ({ candidate }) => {
-      if (candidate) pcRef.current.addIceCandidate(candidate);
+    socket.on("webrtc-ice", async ({ candidate }) => {
+      if (pcRef.current) await pcRef.current.addIceCandidate(candidate);
     });
 
-    socket.on("call-ended", cleanup);
+    socket.on("call-ended", () => endCall());
 
-    return () => {
-      socket.off("webrtc-offer");
-      socket.off("webrtc-answer");
-      socket.off("webrtc-ice");
-      socket.off("call-ended");
-    };
+    return () => endCall();
   }, []);
 
-  const startCall = async () => {
-    await createPeer();
-    const offer = await pcRef.current.createOffer();
-    await pcRef.current.setLocalDescription(offer);
-    socket.emit("webrtc-offer", { to: otherUser._id, offer });
-  };
-
-  const cleanup = () => {
-    pcRef.current?.close();
-    streamRef.current?.getTracks().forEach(t => t.stop());
-    setConnected(false);
-    onEnd?.();
-  };
-
   const endCall = () => {
-    socket.emit("end-call", { to: otherUser._id });
-    cleanup();
+    pcRef.current?.close();
+    onEnd();
   };
-
-  useEffect(() => {
-    if (!connected) return;
-    const t = setInterval(() => setTimer(t => t + 1), 1000);
-    return () => clearInterval(t);
-  }, [connected]);
-
-  const time = `${String(Math.floor(timer / 60)).padStart(2, "0")}:${String(
-    timer % 60
-  ).padStart(2, "0")}`;
 
   return (
-    <div className="call-ui">
-      {connected ? (
-        <>
-          {type === "video" && (
-            <>
-              <video ref={remoteRef} autoPlay playsInline />
-              <video ref={localRef} autoPlay muted playsInline className="pip" />
-            </>
-          )}
-          <div>{time}</div>
-          <button onClick={endCall}>End</button>
-        </>
-      ) : (
-        <button onClick={startCall}>
-          Start {type === "video" ? "Video" : "Audio"} Call
-        </button>
+    <div className="d-flex flex-column align-items-center">
+      {type === "video" && (
+        <div className="d-flex gap-2">
+          <video ref={localVideoRef} autoPlay muted style={{ width: "200px", borderRadius: "8px" }} />
+          <video ref={remoteVideoRef} autoPlay style={{ width: "200px", borderRadius: "8px" }} />
+        </div>
       )}
+      {type === "audio" && <audio ref={remoteVideoRef} autoPlay />}
+      <button className="btn btn-danger mt-3" onClick={() => { socket.emit("end-call", { to: otherUser }); endCall(); }}>
+        End Call
+      </button>
     </div>
   );
 };
