@@ -199,97 +199,131 @@ export default Call;
 
 import React, { useEffect, useRef, useState } from "react";
 
-const ICE_SERVERS = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" }, // public STUN
+    // TURN server optional for production
+  ],
+};
 
 const Call = ({ socket, user, otherUser, type, onEnd }) => {
-  const localVideoRef = useRef();
-  const remoteVideoRef = useRef();
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
   const pcRef = useRef(null);
-  const [callActive, setCallActive] = useState(false);
+  const [callAccepted, setCallAccepted] = useState(false);
+  const [stream, setStream] = useState(null);
 
   useEffect(() => {
-    const startCall = async () => {
-      const pc = new RTCPeerConnection(ICE_SERVERS);
-      pcRef.current = pc;
+    pcRef.current = new RTCPeerConnection(ICE_SERVERS);
 
-      const stream = await navigator.mediaDevices.getUserMedia({ video: type === "video", audio: true });
-      localVideoRef.current.srcObject = stream;
-      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-
-      pc.ontrack = (event) => {
-        remoteVideoRef.current.srcObject = event.streams[0];
-      };
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          socket.emit("webrtc-ice", { to: otherUser, candidate: event.candidate });
-        }
-      };
-
-      // Call flow
-      if (type) {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit("webrtc-offer", { to: otherUser, offer });
-      }
+    pcRef.current.ontrack = (event) => {
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
     };
 
-    startCall();
+    const startLocalStream = async () => {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: type === "video",
+      });
+      setStream(mediaStream);
+      if (localVideoRef.current) localVideoRef.current.srcObject = mediaStream;
+      mediaStream.getTracks().forEach((track) => pcRef.current.addTrack(track, mediaStream));
+    };
+
+    startLocalStream();
 
     socket.on("webrtc-offer", async ({ offer }) => {
-      const pc = new RTCPeerConnection(ICE_SERVERS);
-      pcRef.current = pc;
-
-      const stream = await navigator.mediaDevices.getUserMedia({ video: type === "video", audio: true });
-      localVideoRef.current.srcObject = stream;
-      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-
-      pc.ontrack = (event) => {
-        remoteVideoRef.current.srcObject = event.streams[0];
-      };
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate) socket.emit("webrtc-ice", { to: otherUser, candidate: event.candidate });
-      };
-
-      await pc.setRemoteDescription(offer);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit("webrtc-answer", { to: otherUser, answer });
-      setCallActive(true);
+      await pcRef.current.setRemoteDescription(offer);
+      const answer = await pcRef.current.createAnswer();
+      await pcRef.current.setLocalDescription(answer);
+      socket.emit("webrtc-answer", { to: otherUser._id, answer });
+      setCallAccepted(true);
     });
 
     socket.on("webrtc-answer", async ({ answer }) => {
       await pcRef.current.setRemoteDescription(answer);
-      setCallActive(true);
+      setCallAccepted(true);
     });
 
     socket.on("webrtc-ice", async ({ candidate }) => {
-      if (pcRef.current) await pcRef.current.addIceCandidate(candidate);
+      try {
+        await pcRef.current.addIceCandidate(candidate);
+      } catch (err) {
+        console.error("Error adding ICE candidate:", err);
+      }
     });
 
-    socket.on("call-ended", () => endCall());
-
-    return () => endCall();
+    return () => {
+      socket.off("webrtc-offer");
+      socket.off("webrtc-answer");
+      socket.off("webrtc-ice");
+    };
   }, []);
 
+  // ICE candidates
+  useEffect(() => {
+    if (!pcRef.current) return;
+    pcRef.current.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit("webrtc-ice", { to: otherUser._id, candidate: event.candidate });
+      }
+    };
+  }, [pcRef.current]);
+
+  const callUser = async () => {
+    const offer = await pcRef.current.createOffer();
+    await pcRef.current.setLocalDescription(offer);
+    socket.emit("webrtc-offer", { to: otherUser._id, offer });
+  };
+
+  const acceptCall = async () => {
+    socket.emit("accept-call", { from: otherUser._id });
+    setCallAccepted(true);
+  };
+
+  const rejectCall = () => {
+    socket.emit("reject-call", { from: otherUser._id });
+    onEnd();
+  };
+
   const endCall = () => {
-    pcRef.current?.close();
+    socket.emit("end-call", { to: otherUser._id });
     onEnd();
   };
 
   return (
-    <div className="d-flex flex-column align-items-center">
-      {type === "video" && (
-        <div className="d-flex gap-2">
-          <video ref={localVideoRef} autoPlay muted style={{ width: "200px", borderRadius: "8px" }} />
-          <video ref={remoteVideoRef} autoPlay style={{ width: "200px", borderRadius: "8px" }} />
+    <div
+      className="position-relative d-flex justify-content-center align-items-center flex-column"
+      style={{
+        width: "100%",
+        height: "100%",
+        backgroundColor: "rgba(0,0,0,0.7)",
+        zIndex: 10000,
+      }}
+    >
+      <div className="d-flex gap-2">
+        <video ref={localVideoRef} autoPlay muted playsInline style={{ width: "200px" }} />
+        <video ref={remoteVideoRef} autoPlay playsInline style={{ width: "400px" }} />
+      </div>
+
+      {!callAccepted && (
+        <div className="mt-3 d-flex gap-2">
+          <button className="btn btn-success" onClick={acceptCall}>
+            Accept
+          </button>
+          <button className="btn btn-danger" onClick={rejectCall}>
+            Reject
+          </button>
         </div>
       )}
-      {type === "audio" && <audio ref={remoteVideoRef} autoPlay />}
-      <button className="btn btn-danger mt-3" onClick={() => { socket.emit("end-call", { to: otherUser }); endCall(); }}>
-        End Call
-      </button>
+
+      {callAccepted && (
+        <button className="btn btn-danger mt-3" onClick={endCall}>
+          End Call
+        </button>
+      )}
+
+      {!callAccepted && type === "audio" && callUser()} {/* auto start caller */}
     </div>
   );
 };
