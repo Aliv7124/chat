@@ -191,7 +191,6 @@ useEffect(() => {
 export default ChatPage;
 */
 
-
 import React, { useContext, useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import ChatWindow from "../components/ChatWindow";
@@ -201,6 +200,7 @@ import { useTheme } from "../ThemeContext";
 import { useNavigate } from "react-router-dom";
 import io from "socket.io-client";
 
+// Initialize socket outside or inside a memo to prevent multiple connections
 const socket = io("https://chat-b-7y5f.onrender.com", { transports: ["websocket"] });
 
 const ChatPage = () => {
@@ -208,36 +208,75 @@ const ChatPage = () => {
   const { darkMode, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [selectedUser, setSelectedUser] = useState(null);
-  const [callData, setCallData] = useState(null);
+  
+  // States for handling the call lifecycle
+  const [callData, setCallData] = useState(null); 
+  const [incomingCall, setIncomingCall] = useState(null);
 
   useEffect(() => {
     if (!user) navigate("/");
-  }, [user]);
+    else socket.emit("user-online", user._id);
+  }, [user, navigate]);
 
   useEffect(() => {
     if (!user) return;
-    socket.emit("user-online", user._id);
 
-    socket.on("incoming-call", ({ from, type }) => setCallData({ user: from, type }));
-    socket.on("call-ended", () => setCallData(null));
+    // 1. Handle "Ringing" (Incoming)
+    socket.on("incoming-call", ({ from, type }) => {
+      setIncomingCall({ from, type });
+    });
+
+    // 2. Handle when the caller cancels or the call is rejected
+    socket.on("call-ended", () => {
+      setCallData(null);
+      setIncomingCall(null);
+    });
+
+    // 3. Handle when the other person accepts (For the Caller)
+    socket.on("call-accepted", () => {
+      setCallData(prev => ({ ...prev, active: true }));
+    });
 
     return () => {
       socket.off("incoming-call");
       socket.off("call-ended");
+      socket.off("call-accepted");
     };
   }, [user]);
 
+  // Caller: Start the process
+  const startCall = (type) => {
+    if (!selectedUser) return;
+    socket.emit("call-user", { from: user._id, to: selectedUser._id, type });
+    setCallData({ user: selectedUser, type, isCaller: true, active: false });
+  };
+
+  // Callee: Accept the process
+  const acceptCall = () => {
+    socket.emit("accept-call", { from: incomingCall.from });
+    setCallData({ 
+      user: { _id: incomingCall.from }, 
+      type: incomingCall.type, 
+      isCaller: false, 
+      active: true 
+    });
+    setIncomingCall(null);
+  };
+
+  // Callee: Reject the process
+  const rejectCall = () => {
+    socket.emit("reject-call", { from: incomingCall.from });
+    setIncomingCall(null);
+  };
+
   return (
-    <div style={{ height: "100vh", background: darkMode ? "#121212" : "#f8f9fa" }}>
+    <div style={{ height: "100vh", background: darkMode ? "#121212" : "#f8f9fa", overflow: "hidden" }}>
+      {/* Navbar stays the same */}
       <nav className="navbar navbar-dark bg-dark px-3">
         <span className="navbar-brand">ChatConnect</span>
         <div>
-          <button className="btn btn-outline-light me-2" onClick={toggleTheme}>
-            🌗
-          </button>
-          <button className="btn btn-danger" onClick={logout}>
-            Logout
-          </button>
+          <button className="btn btn-outline-light me-2" onClick={toggleTheme}>🌗</button>
+          <button className="btn btn-danger" onClick={logout}>Logout</button>
         </div>
       </nav>
 
@@ -247,26 +286,39 @@ const ChatPage = () => {
         </div>
 
         <div className="col-9 position-relative">
-          <ChatWindow
-            user={user}
-            selectedUser={selectedUser}
-            socket={socket}
-            startCall={(type) => {
-              if (!selectedUser) return;
-              setCallData({ user: selectedUser, type });
-            }}
-          />
+          <ChatWindow user={user} selectedUser={selectedUser} socket={socket} startCall={startCall} />
 
-          {callData && (
-            <div
-              className="position-absolute top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center"
-              style={{ background: "rgba(0,0,0,0.6)", zIndex: 9999 }}
-            >
+          {/* 1. Incoming Call Notification (Ringing) */}
+          {incomingCall && (
+            <div className="position-absolute top-0 start-50 translate-middle-x mt-3 p-3 bg-white shadow-lg rounded-pill d-flex align-items-center" style={{ zIndex: 10000, minWidth: "300px", border: "2px solid #28a745" }}>
+              <div className="flex-grow-1">
+                <strong>Incoming {incomingCall.type} call...</strong>
+              </div>
+              <button className="btn btn-success btn-sm rounded-circle me-2" onClick={acceptCall}>📞</button>
+              <button className="btn btn-danger btn-sm rounded-circle" onClick={rejectCall}>✖</button>
+            </div>
+          )}
+
+          {/* 2. Calling Overlay (Waiting for Answer) */}
+          {callData && !callData.active && (
+            <div className="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column justify-content-center align-items-center" style={{ background: "rgba(0,0,0,0.85)", zIndex: 9999, color: "white" }}>
+              <h3>Calling {callData.user.name || "User"}...</h3>
+              <div className="spinner-grow text-success my-4"></div>
+              <button className="btn btn-danger rounded-pill px-4" onClick={() => { socket.emit("end-call", { to: callData.user._id }); setCallData(null); }}>
+                Cancel Call
+              </button>
+            </div>
+          )}
+
+          {/* 3. The Active Call (Connected) */}
+          {callData && callData.active && (
+            <div className="position-absolute top-0 start-0 w-100 h-100" style={{ zIndex: 10001 }}>
               <Call
                 socket={socket}
                 user={user}
                 otherUser={callData.user}
                 type={callData.type}
+                isCaller={callData.isCaller}
                 onEnd={() => setCallData(null)}
               />
             </div>

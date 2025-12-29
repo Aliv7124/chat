@@ -502,7 +502,6 @@ export default ChatWindow;
 */
 
 
-
 import React, { useEffect, useState, useRef } from "react";
 import EmojiPicker from "emoji-picker-react";
 import API from "../api";
@@ -516,102 +515,107 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
   const [isTyping, setIsTyping] = useState(false);
   const [recording, setRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
-  const [audioChunks, setAudioChunks] = useState([]);
+  
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [activeMenu, setActiveMenu] = useState(null);
-
+  
   const emojiRef = useRef(null);
   const messagesEndRef = useRef(null);
+  // Ref to store audio chunks to avoid state closure issues
+  const audioChunksRef = useRef([]);
 
-  const BASE_URL =
-    import.meta.env.VITE_BACKEND_URL || "https://chat-b-7y5f.onrender.com";
+  const BASE_URL = import.meta.env.VITE_BACKEND_URL || "https://chat-b-7y5f.onrender.com";
 
-  const formatLastSeen = (timestamp) => {
-    if (!timestamp) return "";
-    const date = new Date(timestamp);
-    return date.toLocaleString([], { hour: "2-digit", minute: "2-digit" });
-  };
-
-  // Join chat room
+  // Join Room
   useEffect(() => {
     if (!socket || !selectedUser) return;
     socket.emit("joinRoom", { userId: user._id, receiverId: selectedUser._id });
-  }, [socket, user, selectedUser]);
+  }, [socket, user._id, selectedUser?._id]);
 
-  // Typing events
-  useEffect(() => {
-    if (!socket) return;
-    socket.on("typing", () => setIsTyping(true));
-    socket.on("stopTyping", () => setIsTyping(false));
-    return () => {
-      socket.off("typing");
-      socket.off("stopTyping");
-    };
-  }, [socket]);
-
-  // Receive messages
+  // Messages & Presence Logic
   useEffect(() => {
     if (!socket || !selectedUser) return;
+
     const handleReceive = (message) => {
       const isForThisChat =
         (message.sender === selectedUser._id && message.receiver === user._id) ||
         (message.sender === user._id && message.receiver === selectedUser._id);
       if (isForThisChat) setMessages((prev) => [...prev, message]);
     };
+
     socket.on("receiveMessage", handleReceive);
-    return () => socket.off("receiveMessage", handleReceive);
-  }, [socket, selectedUser, user]);
-
-  // Fetch messages & last seen
-  useEffect(() => {
-    const fetchMessages = async () => {
-      if (!selectedUser) return;
-      try {
-        const res = await API.get(`/messages/${selectedUser._id}`, {
-          headers: { Authorization: `Bearer ${user.token}` },
-        });
-        setMessages(res.data);
-      } catch (err) {
-        console.error(err);
+    socket.on("typing", () => setIsTyping(true));
+    socket.on("stopTyping", () => setIsTyping(false));
+    
+    // Listen for status changes from the server
+    socket.on("user-status", ({ userId, status, lastSeen }) => {
+      if (userId === selectedUser._id) {
+        setUserLastSeen(status === "online" ? "online" : formatLastSeen(lastSeen));
       }
-    };
+    });
 
-    const fetchLastSeen = async () => {
-      if (!selectedUser?._id) return;
+    return () => {
+      socket.off("receiveMessage");
+      socket.off("typing");
+      socket.off("stopTyping");
+      socket.off("user-status");
+    };
+  }, [socket, selectedUser, user._id]);
+
+  const formatLastSeen = (timestamp) => {
+    if (!timestamp) return "Offline";
+    if (timestamp === "online") return "online";
+    const date = new Date(timestamp);
+    return `Last seen at ${date.toLocaleString([], { hour: "2-digit", minute: "2-digit" })}`;
+  };
+
+  const handleMicClick = async () => {
+    if (!recording) {
       try {
-        const res = await API.get(`/users/${selectedUser._id}`, {
-          headers: { Authorization: `Bearer ${user.token}` },
-        });
-        setUserLastSeen(res.data.lastSeen ? formatLastSeen(res.data.lastSeen) : "Offline");
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        audioChunksRef.current = []; // Clear previous chunks
+        
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) audioChunksRef.current.push(e.data);
+        };
+
+        recorder.onstop = async () => {
+          const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+          const file = new File([blob], "voice.webm", { type: "audio/webm" });
+          const formData = new FormData();
+          formData.append("receiverId", selectedUser._id);
+          formData.append("file", file);
+          await sendMessage(formData);
+          
+          // Stop all tracks to turn off the microphone light
+          stream.getTracks().forEach(track => track.stop());
+        };
+
+        recorder.start();
+        setMediaRecorder(recorder);
+        setRecording(true);
       } catch (err) {
-        console.error(err);
+        console.error("Mic access denied", err);
       }
-    };
+    } else {
+      mediaRecorder.stop();
+      setRecording(false);
+    }
+  };
 
-    fetchMessages();
-    fetchLastSeen();
-  }, [selectedUser, user]);
-
-  // Online status updates
-  useEffect(() => {
+  const handleTyping = (e) => {
+    setText(e.target.value);
     if (!socket || !selectedUser) return;
+    
+    const roomId = [user._id, selectedUser._id].sort().join("_");
+    socket.emit("typing", roomId);
+    
+    clearTimeout(window.typingTimeout);
+    window.typingTimeout = setTimeout(() => {
+      socket.emit("stopTyping", roomId);
+    }, 2000);
+  };
 
-    const handleStatus = ({ userId, status, lastSeen }) => {
-      if (userId !== selectedUser._id) return;
-      if (status === "online") setUserLastSeen("online");
-      else setUserLastSeen(formatLastSeen(lastSeen));
-    };
-
-    socket.on("user-status", handleStatus);
-    return () => socket.off("user-status", handleStatus);
-  }, [socket, selectedUser]);
-
-  // Scroll to bottom
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, selectedUser]);
-
-  // Send message
   const sendMessage = async (formData) => {
     try {
       const res = await API.post("/messages", formData, {
@@ -622,7 +626,7 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
       });
       socket.emit("sendMessage", res.data);
     } catch (err) {
-      console.error(err);
+      console.error("Send failed", err);
     }
   };
 
@@ -634,119 +638,62 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
     formData.append("content", text);
     await sendMessage(formData);
     setText("");
+    socket.emit("stopTyping", [user._id, selectedUser._id].sort().join("_"));
   };
 
-  const handleTyping = (e) => {
-    setText(e.target.value);
-    if (!socket || !selectedUser) return;
-    socket.emit("typing", [user._id, selectedUser._id].sort().join("_"));
-    clearTimeout(window.typingTimeout);
-    window.typingTimeout = setTimeout(() => {
-      socket.emit("stopTyping", [user._id, selectedUser._id].sort().join("_"));
-    }, 1500);
-  };
-
-  const handleFileChange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const formData = new FormData();
-    formData.append("receiverId", selectedUser._id);
-    formData.append("file", file);
-    await sendMessage(formData);
-  };
-
-  const handleMicClick = async () => {
-    if (!recording) {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      setMediaRecorder(recorder);
-      setAudioChunks([]);
-      recorder.start();
-      setRecording(true);
-      recorder.ondataavailable = (e) => setAudioChunks((prev) => [...prev, e.data]);
-      recorder.onstop = async () => {
-        const blob = new Blob(audioChunks, { type: "audio/webm" });
-        const file = new File([blob], "voice.webm", { type: "audio/webm" });
-        const formData = new FormData();
-        formData.append("receiverId", selectedUser._id);
-        formData.append("file", file);
-        await sendMessage(formData);
-        setRecording(false);
-      };
-    } else {
-      mediaRecorder.stop();
-    }
-  };
-
-  const handleEmojiClick = (emojiData) => setText((p) => p + emojiData.emoji);
-
-  if (!selectedUser)
-    return (
-      <div
-        className={`d-flex flex-column justify-content-center align-items-center text-center h-100 ${
-          darkMode ? "bg-dark text-light" : "bg-light text-dark"
-        }`}
-      >
-        <h5>Welcome to ChatConnect 💬</h5>
-        <p>Select a user to start chatting.</p>
-      </div>
-    );
-
+  // UI rendering remains mostly the same as your input
   return (
     <div className="d-flex flex-column h-100">
-      {/* Header */}
-      <div className={`d-flex align-items-center justify-content-between p-3 border-bottom ${darkMode ? "bg-secondary text-light" : "bg-light text-dark"}`}>
-        <div>
-          <h6>{selectedUser.name}</h6>
-          <small>{isTyping ? "Typing..." : userLastSeen || "Offline"}</small>
-        </div>
-        <div className="d-flex gap-2">
-          <button className="btn btn-success btn-sm" onClick={() => startCall("audio")}>📞</button>
-          <button className="btn btn-primary btn-sm" onClick={() => startCall("video")}>🎥</button>
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div className="flex-grow-1 p-3 overflow-auto" style={{ backgroundColor: darkMode ? "#1e1e1e" : "#f5f7fb" }}>
-        {messages.map((msg) => (
-          <div key={msg._id} className={`d-flex mb-2 ${msg.sender === user._id ? "justify-content-end" : "justify-content-start"}`}>
-            <div className={`p-2 px-3 rounded-3 ${msg.sender === user._id ? "bg-primary text-white" : darkMode ? "bg-secondary text-white" : "bg-white border"}`} style={{ maxWidth: "70%" }}>
-              {msg.fileType === "image" ? (
-                <img src={`${BASE_URL}${msg.fileUrl}`} alt="Sent" className="img-fluid rounded" style={{ maxHeight: "200px" }} />
-              ) : msg.fileType === "audio" ? (
-                <audio controls src={`${BASE_URL}${msg.fileUrl}`} />
-              ) : msg.fileType === "document" ? (
-                <a href={`${BASE_URL}${msg.fileUrl}`} target="_blank" rel="noopener noreferrer">{msg.fileUrl.split("/").pop()}</a>
-              ) : (
-                <div>{msg.content}</div>
-              )}
-              <small className="d-block text-end text-muted" style={{ fontSize: "0.75rem" }}>
-                {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-              </small>
-            </div>
+        {/* Header with Call Buttons */}
+        <div className={`d-flex align-items-center justify-content-between p-3 border-bottom ${darkMode ? "bg-secondary text-light" : "bg-light text-dark"}`}>
+          <div>
+            <h6 className="mb-0">{selectedUser.name}</h6>
+            <small className={userLastSeen === "online" ? "text-success" : "text-muted"}>
+              {isTyping ? "Typing..." : userLastSeen || "Offline"}
+            </small>
           </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input */}
-      <form onSubmit={handleSend} className="p-3 border-top d-flex align-items-center gap-2">
-        <button type="button" onClick={handleMicClick} className={`btn ${recording ? "btn-danger" : "btn-secondary"}`} style={{ width: "40px", height: "40px" }}>🎤</button>
-        <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="btn btn-light" style={{ width: "40px", height: "40px" }}>😊</button>
-        <label className="btn btn-secondary mb-0" style={{ cursor: "pointer" }}>
-          📎
-          <input type="file" hidden onChange={handleFileChange} />
-        </label>
-        <input type="text" className="form-control" placeholder="Type a message..." value={text} onChange={handleTyping} />
-        <button type="submit" className="btn btn-primary">Send</button>
-      </form>
-
-      {/* Emoji Picker */}
-      {showEmojiPicker && (
-        <div ref={emojiRef} className="position-fixed" style={{ bottom: "90px", left: "60px", zIndex: 2000 }}>
-          <EmojiPicker onEmojiClick={handleEmojiClick} height={350} width={300} theme={darkMode ? "dark" : "light"} />
+          <div className="d-flex gap-2">
+            <button className="btn btn-light btn-sm rounded-circle" onClick={() => startCall("audio")}>📞</button>
+            <button className="btn btn-light btn-sm rounded-circle" onClick={() => startCall("video")}>🎥</button>
+          </div>
         </div>
-      )}
+
+        {/* Messages Section */}
+        <div className="flex-grow-1 p-3 overflow-auto" style={{ backgroundColor: darkMode ? "#121212" : "#f5f7fb" }}>
+          {messages.map((msg) => (
+             <div key={msg._id} className={`d-flex mb-3 ${msg.sender === user._id ? "justify-content-end" : "justify-content-start"}`}>
+                <div className={`p-2 px-3 rounded-3 shadow-sm ${msg.sender === user._id ? "bg-primary text-white" : darkMode ? "bg-dark text-white border-secondary" : "bg-white border"}`} style={{ maxWidth: "75%" }}>
+                  {/* File Rendering Logic */}
+                  {msg.fileUrl && (
+                    <div className="mb-1">
+                        {msg.fileType === "image" && <img src={`${BASE_URL}${msg.fileUrl}`} className="img-fluid rounded" alt="sent" />}
+                        {msg.fileType === "audio" && <audio controls src={`${BASE_URL}${msg.fileUrl}`} className="w-100" />}
+                        {msg.fileType === "document" && <a href={`${BASE_URL}${msg.fileUrl}`} className="text-info" target="_blank">📄 Attachment</a>}
+                    </div>
+                  )}
+                  <div>{msg.content}</div>
+                  <small className={`d-block text-end mt-1 ${msg.sender === user._id ? "text-white-50" : "text-muted"}`} style={{ fontSize: "0.65rem" }}>
+                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </small>
+                </div>
+             </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input Bar */}
+        <form onSubmit={handleSend} className={`p-3 border-top d-flex align-items-center gap-2 ${darkMode ? "bg-dark" : "bg-white"}`}>
+          <button type="button" onClick={handleMicClick} className={`btn rounded-circle ${recording ? "btn-danger pulse" : "btn-outline-secondary"}`}>🎤</button>
+          <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="btn btn-link p-0 text-decoration-none">😊</button>
+          <input type="text" className={`form-control rounded-pill ${darkMode ? "bg-secondary text-white border-0" : ""}`} placeholder="Message..." value={text} onChange={handleTyping} />
+          <button type="submit" className="btn btn-primary rounded-circle">➡️</button>
+        </form>
+
+        {showEmojiPicker && (
+          <div className="position-absolute" style={{ bottom: "80px", left: "20px", zIndex: 10 }}>
+            <EmojiPicker onEmojiClick={(emoji) => setText(t => t + emoji.emoji)} theme={darkMode ? "dark" : "light"} />
+          </div>
+        )}
     </div>
   );
 };

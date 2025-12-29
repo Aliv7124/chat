@@ -197,99 +197,129 @@ export default Call;
 */
 
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 
 const ICE_SERVERS = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
-    // You can add TURN server here for production
-    // { urls: "turn:YOUR_TURN_SERVER", username: "user", credential: "pass" }
+    { urls: "stun:stun1.l.google.com:19302" },
   ],
 };
 
-const Call = ({ socket, user, otherUser, type, onEnd }) => {
+const Call = ({ socket, user, otherUser, type, onEnd, isCaller }) => {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-  const [pc, setPc] = useState(null);
-  const [stream, setStream] = useState(null);
+  
+  // Use Refs for WebRTC objects to prevent state-closure issues
+  const pc = useRef(null);
+  const localStream = useRef(null);
 
   useEffect(() => {
     const initCall = async () => {
       try {
-        // 1️⃣ Create PeerConnection
-        const peerConnection = new RTCPeerConnection(ICE_SERVERS);
-        setPc(peerConnection);
+        // 1. Setup PeerConnection instance
+        pc.current = new RTCPeerConnection(ICE_SERVERS);
 
-        // 2️⃣ Get local media
-        const localStream = await navigator.mediaDevices.getUserMedia({
+        // 2. Get local media
+        localStream.current = await navigator.mediaDevices.getUserMedia({
           video: type === "video",
           audio: true,
         });
-        setStream(localStream);
 
-        if (localVideoRef.current) localVideoRef.current.srcObject = localStream;
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = localStream.current;
+        }
 
-        // Add tracks to PeerConnection
-        localStream.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
+        // 3. Add tracks to PeerConnection
+        localStream.current.getTracks().forEach((track) => {
+          pc.current.addTrack(track, localStream.current);
+        });
 
-        // 3️⃣ Handle remote stream
-        peerConnection.ontrack = (event) => {
-          if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
+        // 4. Handle incoming remote stream
+        pc.current.ontrack = (event) => {
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = event.streams[0];
+          }
         };
 
-        // 4️⃣ Handle ICE candidates
-        peerConnection.onicecandidate = (event) => {
+        // 5. Send ICE candidates to the other user
+        pc.current.onicecandidate = (event) => {
           if (event.candidate) {
-            socket.emit("webrtc-ice", { to: otherUser._id, candidate: event.candidate });
+            socket.emit("webrtc-ice", { 
+              to: otherUser._id, 
+              candidate: event.candidate 
+            });
           }
         };
 
-        // 5️⃣ Outgoing call (if we initiated)
-        if (user._id === socket.id) return; // skip if we are callee
-
-        // 6️⃣ Incoming call: listen for offer
-        socket.on("webrtc-offer", async ({ offer }) => {
-          await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-          const answer = await peerConnection.createAnswer();
-          await peerConnection.setLocalDescription(answer);
-          socket.emit("webrtc-answer", { to: otherUser._id, answer });
-        });
-
-        // 7️⃣ Listen for answer if we are caller
-        socket.on("webrtc-answer", async ({ answer }) => {
-          await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-        });
-
-        // 8️⃣ Listen for ICE candidates
-        socket.on("webrtc-ice", async ({ candidate }) => {
-          try {
-            await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-          } catch (err) {
-            console.error("Error adding received ICE candidate", err);
+        // 6. Signaling Handlers
+        socket.on("webrtc-offer", async ({ offer, from }) => {
+          if (from === otherUser._id) {
+            await pc.current.setRemoteDescription(new RTCSessionDescription(offer));
+            const answer = await pc.current.createAnswer();
+            await pc.current.setLocalDescription(answer);
+            socket.emit("webrtc-answer", { to: from, answer });
           }
         });
+
+        socket.on("webrtc-answer", async ({ answer, from }) => {
+          if (from === otherUser._id) {
+            await pc.current.setRemoteDescription(new RTCSessionDescription(answer));
+          }
+        });
+
+        socket.on("webrtc-ice", async ({ candidate, from }) => {
+          if (from === otherUser._id && candidate) {
+            try {
+              await pc.current.addIceCandidate(new RTCIceCandidate(candidate));
+            } catch (err) {
+              console.error("Error adding received ICE candidate", err);
+            }
+          }
+        });
+
+        socket.on("call-ended", () => {
+          cleanup();
+          onEnd();
+        });
+
+        // 7. Start negotiation if Caller
+        if (isCaller) {
+          const offer = await pc.current.createOffer();
+          await pc.current.setLocalDescription(offer);
+          socket.emit("webrtc-offer", { to: otherUser._id, offer });
+        }
 
       } catch (err) {
         console.error("Failed to init call", err);
+        onEnd(); // Close UI if permissions fail
       }
     };
 
     initCall();
 
-    return () => {
-      // Clean up
-      if (pc) pc.close();
-      if (stream) stream.getTracks().forEach((track) => track.stop());
-      socket.off("webrtc-offer");
-      socket.off("webrtc-answer");
-      socket.off("webrtc-ice");
-    };
-  }, []);
+    return () => cleanup();
+  }, [socket, otherUser._id, isCaller, type]);
+
+  const cleanup = () => {
+    socket.off("webrtc-offer");
+    socket.off("webrtc-answer");
+    socket.off("webrtc-ice");
+    socket.off("call-ended");
+
+    if (pc.current) {
+      pc.current.close();
+      pc.current = null;
+    }
+    if (localStream.current) {
+      localStream.current.getTracks().forEach((track) => track.stop());
+      localStream.current = null;
+    }
+  };
 
   const handleEndCall = () => {
     socket.emit("end-call", { to: otherUser._id });
-    if (pc) pc.close();
-    if (stream) stream.getTracks().forEach((track) => track.stop());
+    cleanup();
     onEnd();
   };
 
@@ -297,10 +327,13 @@ const Call = ({ socket, user, otherUser, type, onEnd }) => {
     <div
       className="d-flex flex-column justify-content-center align-items-center"
       style={{
-        width: "100%",
-        height: "100%",
+        width: "100vw",
+        height: "100vh",
         backgroundColor: "#000",
-        position: "relative",
+        position: "fixed",
+        top: 0,
+        left: 0,
+        zIndex: 9999
       }}
     >
       <video
@@ -315,22 +348,21 @@ const Call = ({ socket, user, otherUser, type, onEnd }) => {
         muted
         playsInline
         style={{
-          width: "200px",
-          height: "150px",
+          width: "240px",
+          height: "180px",
           position: "absolute",
-          bottom: "10px",
-          right: "10px",
+          bottom: "20px",
+          right: "20px",
           border: "2px solid #fff",
-          borderRadius: "8px",
+          borderRadius: "12px",
+          backgroundColor: "#222"
         }}
       />
-      <button
-        onClick={handleEndCall}
-        className="btn btn-danger"
-        style={{ position: "absolute", top: "10px", right: "10px" }}
-      >
-        End Call
-      </button>
+      <div style={{ position: "absolute", bottom: "40px", left: "50%", transform: "translateX(-50%)" }}>
+        <button onClick={handleEndCall} className="btn btn-danger btn-lg rounded-circle p-3">
+          End Call
+        </button>
+      </div>
     </div>
   );
 };
