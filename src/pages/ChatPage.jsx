@@ -276,15 +276,33 @@ const ChatPage = () => {
   };
 
   return (
-    <div className="container-fluid vh-100 p-0 overflow-hidden position-relative">
-      <div className="row g-0 h-100">
-        <div className="col-md-4 col-lg-3 border-end h-100">
-          <Sidebar user={user} setSelectedUser={setSelectedUser} socket={socket} />
-        </div>
-        <div className="col-md-8 col-lg-9 h-100">
-          <ChatWindow user={user} selectedUser={selectedUser} socket={socket} startCall={startCall} />
-        </div>
-      </div>
+   <div className="container-fluid vh-100 p-0 overflow-hidden position-relative">
+  <div className="row g-0 h-100">
+    
+    {/* SIDEBAR: 
+        - On Mobile: Hide if a user is selected (d-none), show if not (d-block)
+        - On Desktop: Always show (d-md-block) 
+    */}
+    <div className={`col-md-4 col-lg-3 border-end h-100 ${selectedUser ? "d-none d-md-block" : "d-block"}`}>
+      <Sidebar user={user} setSelectedUser={setSelectedUser} socket={socket} />
+    </div>
+
+    {/* CHAT WINDOW: 
+        - On Mobile: Show if a user is selected (d-block), hide if not (d-none)
+        - On Desktop: Always show (d-md-block)
+    */}
+    <div className={`col-md-8 col-lg-9 h-100 ${!selectedUser ? "d-none d-md-block" : "d-block"}`}>
+      <ChatWindow 
+        user={user} 
+        selectedUser={selectedUser} 
+        setSelectedUser={setSelectedUser} 
+        socket={socket} 
+        startCall={startCall} 
+      />
+    </div>
+
+  </div>
+
 
       {/* --- INCOMING CALL MODAL --- */}
       {incomingCall && (
