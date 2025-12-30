@@ -257,7 +257,6 @@ const ChatWindow = ({ user, selectedUser, socket, startCall }) => {
 export default ChatWindow;
 */
 
-
 import React, { useEffect, useState, useRef } from "react";
 import EmojiPicker from "emoji-picker-react";
 import API from "../api";
@@ -267,42 +266,73 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   const { darkMode } = useTheme();
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
-  const [userLastSeen, setUserLastSeen] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
-  
-  const messagesEndRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
-  const BASE_URL = import.meta.env.VITE_BACKEND_URL || "https://chat-b-7y5f.onrender.com";
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [userStatus, setUserStatus] = useState(selectedUser?.isOnline ? "online" : selectedUser?.lastSeen);
 
-  // 1. Socket Listeners (Moved BEFORE the guard)
+  const [recording, setRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const audioChunksRef = useRef([]);
+  const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const BASE_URL = "https://chat-b-7y5f.onrender.com";
+
+  // --- 1. Custom Date Formatter (30th December 7:02 pm) ---
+  const formatLastSeen = (ts) => {
+    if (!ts || ts === "online") return ts === "online" ? "Online" : "Offline";
+    
+    const date = new Date(ts);
+    const day = date.getDate();
+    
+    const getOrdinal = (n) => {
+      const s = ["th", "st", "nd", "rd"];
+      const v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    };
+
+    const month = date.toLocaleString('en-US', { month: 'long' });
+    const time = date.toLocaleString('en-US', { 
+      hour: 'numeric', 
+      minute: '2-digit', 
+      hour12: true 
+    }).toLowerCase();
+
+    return `Last seen ${getOrdinal(day)} ${month} ${time}`;
+  };
+
+  // --- 2. Socket Listeners ---
   useEffect(() => {
-    // We check for selectedUser INSIDE the hook logic, not outside
     if (!socket || !selectedUser?._id) return;
 
-    socket.emit("joinRoom", { userId: user._id, receiverId: selectedUser._id });
+    socket.on("receiveMessage", (message) => {
+      if (message.sender === selectedUser._id || message.sender === user._id) {
+        setMessages((prev) => [...prev, message]);
+      }
+    });
 
-    const handleReceive = (message) => {
-      setMessages((prev) => [...prev, message]);
-    };
+    socket.on("user-status", ({ userId, status, lastSeen }) => {
+      if (userId === selectedUser._id) {
+        setUserStatus(status === "online" ? "online" : lastSeen);
+      }
+    });
 
-    const handleDelete = (msgId) => {
-      setMessages((prev) => prev.filter((m) => m._id !== msgId));
-    };
+    socket.on("messageDeleted", ({ messageId }) => {
+      setMessages((prev) => prev.filter((m) => m._id !== messageId));
+    });
 
-    socket.on("receiveMessage", handleReceive);
-    socket.on("messageDeleted", handleDelete);
     socket.on("typing", () => setIsTyping(true));
     socket.on("stopTyping", () => setIsTyping(false));
 
     return () => {
-      socket.off("receiveMessage", handleReceive);
-      socket.off("messageDeleted", handleDelete);
+      socket.off("receiveMessage");
+      socket.off("user-status");
+      socket.off("messageDeleted");
       socket.off("typing");
       socket.off("stopTyping");
     };
   }, [socket, selectedUser?._id, user._id]);
 
-  // 2. Fetch History (Moved BEFORE the guard)
+  // --- 3. Fetch History ---
   useEffect(() => {
     const fetchChatData = async () => {
       if (!selectedUser?._id) return;
@@ -311,6 +341,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
           headers: { Authorization: `Bearer ${user.token}` },
         });
         setMessages(res.data);
+        setUserStatus(selectedUser.isOnline ? "online" : selectedUser.lastSeen);
       } catch (err) { console.error(err); }
     };
     fetchChatData();
@@ -320,22 +351,10 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // 3. Guards and Handlers
-  const handleDeleteAction = async (msgId) => {
-    if (!window.confirm("Delete this message?")) return;
-    try {
-      await API.delete(`/messages/${msgId}`, {
-        headers: { Authorization: `Bearer ${user.token}` },
-      });
-      setMessages((prev) => prev.filter((m) => m._id !== msgId));
-      const roomId = [user._id, selectedUser._id].sort().join("_");
-      socket.emit("deleteMessage", { msgId, roomId });
-    } catch (err) { console.error(err); }
-  };
-
+  // --- 4. Handlers ---
   const handleSend = async (e) => {
-    e.preventDefault();
-    if (!text.trim() || !selectedUser) return;
+    if (e) e.preventDefault();
+    if (!text.trim()) return;
     const formData = new FormData();
     formData.append("receiverId", selectedUser._id);
     formData.append("content", text);
@@ -343,109 +362,122 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       const res = await API.post("/messages", formData, {
         headers: { Authorization: `Bearer ${user.token}`, "Content-Type": "multipart/form-data" },
       });
+      setMessages((prev) => [...prev, res.data]);
       socket.emit("sendMessage", res.data);
       setText("");
+      setShowEmojiPicker(false);
     } catch (err) { console.error(err); }
   };
 
-  // --- CRITICAL GUARD: Move this after all hooks ---
-  if (!selectedUser) {
-    return (
-      <div className={`d-flex flex-column justify-content-center align-items-center h-100 ${darkMode ? "bg-dark text-white" : "bg-light text-muted"}`}>
-        <h5>Select a chat to start messaging</h5>
-      </div>
-    );
-  }
-
-  const formatLastSeen = (dateString) => {
-    if (!dateString) return "offline";
-    const date = new Date(dateString);
-    
-    const day = date.getDate();
-    const month = date.toLocaleString('en-GB', { month: 'long' });
-    const time = date.toLocaleString('en-GB', { 
-      hour: 'numeric', 
-      minute: '2-digit', 
-      hour12: true 
-    }).toLowerCase().replace(' ', ''); // turning 5:06 PM into 5:06pm
-
-    // Logic for adding st, nd, rd, th
-    const getOrdinal = (n) => {
-      if (n > 3 && n < 21) return 'th';
-      switch (n % 10) {
-        case 1:  return "st";
-        case 2:  return "nd";
-        case 3:  return "rd";
-        default: return "th";
-      }
-    };
-
-    return `${day}${getOrdinal(day)} ${month} ${time}`;
+  const deleteMessage = async (id) => {
+    if (!window.confirm("Delete this message?")) return;
+    try {
+      await API.delete(`/messages/${id}`, { headers: { Authorization: `Bearer ${user.token}` } });
+      setMessages((prev) => prev.filter((m) => m._id !== id));
+      socket.emit("deleteMessage", { messageId: id, receiverId: selectedUser._id });
+    } catch (err) { console.error(err); }
   };
 
-  return (
-    <div className="d-flex flex-column h-100 overflow-hidden bg-white shadow">
-      
-      {/* HEADER: Fixed with Back Button */}
-      <div className={`d-flex align-items-center justify-content-between p-3 border-bottom ${darkMode ? "bg-dark text-white" : "bg-light text-dark"}`} style={{ flexShrink: 0, zIndex: 10 }}>
-        <div className="d-flex align-items-center overflow-hidden">
-          
-          <button 
-            className="btn btn-link p-0 me-3 text-decoration-none d-md-none" 
-            onClick={() => setSelectedUser(null)}
-            style={{ fontSize: "1.4rem", color: darkMode ? "white" : "black" }}
-          >
-            ❮
-          </button>
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("receiverId", selectedUser._id);
+    formData.append("file", file);
+    try {
+      const res = await API.post("/messages", formData, {
+        headers: { Authorization: `Bearer ${user.token}`, "Content-Type": "multipart/form-data" },
+      });
+      setMessages((prev) => [...prev, res.data]);
+      socket.emit("sendMessage", res.data);
+      e.target.value = ""; 
+    } catch (err) { console.error(err); }
+  };
 
-          <div className="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-2 fw-bold" style={{ width: "40px", height: "40px", flexShrink: 0 }}>
+  const toggleRecording = async () => {
+    if (!recording) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        audioChunksRef.current = [];
+        recorder.ondataavailable = (e) => audioChunksRef.current.push(e.data);
+        recorder.onstop = async () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+          const file = new File([audioBlob], "voice.webm", { type: "audio/webm" });
+          const formData = new FormData();
+          formData.append("receiverId", selectedUser._id);
+          formData.append("file", file);
+          const res = await API.post("/messages", formData, {
+            headers: { Authorization: `Bearer ${user.token}`, "Content-Type": "multipart/form-data" },
+          });
+          setMessages((prev) => [...prev, res.data]);
+          socket.emit("sendMessage", res.data);
+          stream.getTracks().forEach(track => track.stop());
+        };
+        recorder.start();
+        setMediaRecorder(recorder);
+        setRecording(true);
+      } catch (err) { alert("Mic access denied"); }
+    } else {
+      mediaRecorder.stop();
+      setRecording(false);
+    }
+  };
+
+  if (!selectedUser) return <div className="h-100 d-flex align-items-center justify-content-center">Select a chat</div>;
+
+  return (
+    <div className="d-flex flex-column h-100 position-relative bg-white shadow overflow-hidden">
+      {/* HEADER */}
+      <div className={`p-3 border-bottom d-flex align-items-center justify-content-between ${darkMode ? "bg-dark text-white" : "bg-light"}`}>
+        <div className="d-flex align-items-center">
+          <div className="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-3 fw-bold" style={{ width: "42px", height: "42px" }}>
             {selectedUser.name?.charAt(0).toUpperCase()}
           </div>
-          
-         <div className="text-truncate">
-      <h6 className="mb-0 fw-bold text-truncate" style={{ maxWidth: "120px" }}>
-        {selectedUser.name}
-      </h6>
-      
-      {isTyping ? (
-        <small className="text-success fw-bold">Typing...</small>
-      ) : (
-        <small className={selectedUser.isOnline ? "text-success" : "text-muted"}>
-          {selectedUser.isOnline ? (
-            <>● Online</>
-          ) : (
-            `Last seen ${formatLastSeen(selectedUser.lastSeen)}`
-          )}
-        </small>
-      )}
-    </div>
-        </div>
-
-        <div className="d-flex gap-2">
-          <button className="btn btn-sm btn-outline-primary rounded-pill px-2 px-md-3" onClick={() => startCall("audio")}>📞</button>
-          <button className="btn btn-sm btn-outline-primary rounded-pill px-2 px-md-3" onClick={() => startCall("video")}>🎥</button>
+          <div>
+            <div className="fw-bold">{selectedUser.name}</div>
+            <small className={userStatus === "online" ? "text-success fw-bold" : "text-muted"}>
+              {isTyping ? "Typing..." : formatLastSeen(userStatus)}
+            </small>
+          </div>
         </div>
       </div>
 
-      {/* SCROLLABLE MESSAGES */}
-      <div className="flex-grow-1 p-3 overflow-auto d-flex flex-column" style={{ backgroundColor: darkMode ? "#1a1a1a" : "#f0f2f5" }}>
+      {/* MESSAGES AREA */}
+      <div className="flex-grow-1 p-3 overflow-auto" style={{ backgroundColor: darkMode ? "#1a1a1a" : "#f0f2f5" }}>
         {messages.map((msg) => (
-          <div key={msg._id} className={`d-flex mb-2 ${msg.sender === user._id ? "justify-content-end" : "justify-content-start"}`}>
-            <div className="d-flex align-items-center">
+          <div key={msg._id} className={`d-flex mb-3 ${msg.sender === user._id ? "justify-content-end" : "justify-content-start"}`}>
+            <div className={`position-relative p-2 px-3 rounded-4 shadow-sm ${msg.sender === user._id ? "bg-primary text-white" : "bg-white text-dark"}`} style={{ minWidth: '100px', maxWidth: '75%' }}>
+              
+              {/* DROPDOWN MENU */}
               {msg.sender === user._id && (
-                <div className="dropdown me-1">
-                  <button className="btn btn-link btn-sm text-muted p-0 border-0" data-bs-toggle="dropdown">⋮</button>
-                  <ul className="dropdown-menu shadow-sm">
-                    <li><button className="dropdown-item text-danger small" onClick={() => handleDeleteAction(msg._id)}>Delete</button></li>
+                <div className="dropdown position-absolute" style={{ top: "4px", right: "6px" }}>
+                  <button className="btn btn-link btn-sm text-white opacity-50 p-0 border-0" data-bs-toggle="dropdown">
+                    <i className="bi bi-chevron-down" style={{ fontSize: "12px" }}></i>
+                  </button>
+                  <ul className="dropdown-menu dropdown-menu-end shadow border-0 py-1" style={{ fontSize: "13px" }}>
+                    <li><button className="dropdown-item text-danger" onClick={() => deleteMessage(msg._id)}><i className="bi bi-trash me-2"></i>Delete</button></li>
                   </ul>
                 </div>
               )}
-              <div className={`p-2 px-3 rounded-4 shadow-sm ${msg.sender === user._id ? "bg-primary text-white" : "bg-white text-dark"}`} style={{ maxWidth: "80%" }}>
-                <p className="mb-0 text-break">{msg.content}</p>
-                <small className="d-block text-end opacity-50" style={{ fontSize: "0.6rem" }}>
-                  {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </small>
-              </div>
+
+              {/* MEDIA CONTENT */}
+              {msg.fileUrl && (
+                <div className="mb-2 mt-1">
+                   {msg.fileType === "image" ? (
+                     <img src={`${BASE_URL}${msg.fileUrl}`} style={{maxWidth: '100%', borderRadius: '8px'}} className="img-fluid" onClick={() => window.open(`${BASE_URL}${msg.fileUrl}`, '_blank')} />
+                   ) : (
+                     <audio controls className="w-100" style={{ height: "32px" }}>
+                       <source src={`${BASE_URL}${msg.fileUrl}`} type="audio/webm" />
+                     </audio>
+                   )}
+                </div>
+              )}
+              
+              <p className="mb-1 text-break pe-3">{msg.content}</p>
+              <small className="d-block text-end opacity-75" style={{ fontSize: "10px" }}>
+                {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </small>
             </div>
           </div>
         ))}
@@ -453,20 +485,38 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       </div>
 
       {/* FOOTER */}
-      <div className={`p-3 border-top ${darkMode ? "bg-dark" : "bg-white"}`} style={{ flexShrink: 0 }}>
+      <div className={`p-3 border-top ${darkMode ? "bg-dark" : "bg-white"}`}>
         <form onSubmit={handleSend} className="d-flex align-items-center gap-2">
+          <button type="button" className={`btn rounded-circle ${recording ? "btn-danger" : "btn-light"}`} onClick={toggleRecording}>
+            <i className={`bi ${recording ? "bi-stop-circle" : "bi-mic"}`}></i>
+          </button>
+          
+          <button type="button" className="btn btn-light rounded-circle" onClick={() => fileInputRef.current.click()}>
+            <i className="bi bi-paperclip"></i>
+          </button>
+          <input type="file" ref={fileInputRef} className="d-none" onChange={handleFileChange} />
+
+          <button type="button" className="btn btn-light rounded-circle" onClick={() => setShowEmojiPicker(!showEmojiPicker)}>
+            <i className="bi bi-emoji-smile"></i>
+          </button>
+
+          {showEmojiPicker && (
+            <div className="position-absolute" style={{ bottom: "80px", left: "20px", zIndex: 1000 }}>
+              <EmojiPicker onEmojiClick={(e) => setText(p => p + e.emoji)} theme={darkMode ? "dark" : "light"} />
+            </div>
+          )}
+
           <input 
             type="text" 
-            className={`form-control rounded-pill px-3 ${darkMode ? "bg-secondary border-0 text-white" : "bg-light border-0"}`} 
+            className="form-control rounded-pill px-3 shadow-none border" 
             placeholder="Type a message..." 
             value={text} 
-            onChange={(e) => {
-              setText(e.target.value);
-              const roomId = [user._id, selectedUser._id].sort().join("_");
-              socket.emit("typing", roomId);
-            }} 
+            onChange={(e) => setText(e.target.value)} 
           />
-          <button type="submit" className="btn btn-primary rounded-pill" disabled={!text.trim()}>➤</button>
+
+          <button type="submit" className="btn btn-primary rounded-circle" style={{ width: "40px", height: "40px" }}>
+            <i className="bi bi-send-fill"></i>
+          </button>
         </form>
       </div>
     </div>
