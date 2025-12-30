@@ -198,6 +198,7 @@ import ChatWindow from "../components/ChatWindow";
 import Call from "../Call";
 import { AuthContext } from "../context/AuthContext";
 import { io } from "socket.io-client";
+import { useTheme } from "../ThemeContext";
 
 const socket = io(import.meta.env.VITE_BACKEND_URL || "https://chat-b-7y5f.onrender.com");
 
@@ -207,8 +208,16 @@ const ChatPage = () => {
   const [callData, setCallData] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null);
   
-  // Ref for ringtone audio
-  const ringtoneRef = useRef(new Audio("/ringtone.mp3")); // Place a ringtone.mp3 in your public folder
+  // 1. Get darkMode from context and define currentTheme LOCALLY
+  const { darkMode, toggleTheme } = useTheme();
+  
+  const currentTheme = {
+    navBg: darkMode ? "#212529" : "#ffffff",
+    textColor: darkMode ? "#f8f9fa" : "#212529",
+    accent: "#0d6efd",
+  };
+
+  const ringtoneRef = useRef(new Audio("/ringtone.mp3"));
 
   useEffect(() => {
     if (!user) return;
@@ -218,7 +227,7 @@ const ChatPage = () => {
     socket.on("incoming-call", ({ from, type }) => {
       setIncomingCall({ from, type });
       ringtoneRef.current.loop = true;
-      ringtoneRef.current.play().catch(err => console.log("Audio play blocked until user interaction"));
+      ringtoneRef.current.play().catch(err => console.log("Audio play blocked"));
     });
 
     socket.on("call-accepted", () => {
@@ -261,7 +270,7 @@ const ChatPage = () => {
     stopRingtone();
     socket.emit("accept-call", { to: incomingCall.from });
     setCallData({
-      user: { _id: incomingCall.from, name: "Partner" }, // Pass name if available
+      user: { _id: incomingCall.from, name: "Partner" }, 
       type: incomingCall.type,
       isCaller: false,
       active: true,
@@ -276,41 +285,103 @@ const ChatPage = () => {
   };
 
   return (
-   <div className="container-fluid vh-100 p-0 overflow-hidden position-relative">
-  <div className="row g-0 h-100">
+    /* MASTER WRAPPER */
+    <div className="d-flex flex-column vh-100 p-0 overflow-hidden">
+      
+      {/* 1. NAVBAR */}
+     {/* 1. NAVBAR */}
+<nav 
+  className="navbar navbar-expand-lg shadow-sm" 
+  style={{
+    background: currentTheme.navBg,
+    color: currentTheme.textColor,
+    flexShrink: 0 
+  }}
+>
+  <div className="container-fluid d-flex align-items-center">
     
-    {/* SIDEBAR: 
-        - On Mobile: Hide if a user is selected (d-none), show if not (d-block)
-        - On Desktop: Always show (d-md-block) 
-    */}
-    <div className={`col-md-4 col-lg-3 border-end h-100 ${selectedUser ? "d-none d-md-block" : "d-block"}`}>
-      <Sidebar user={user} setSelectedUser={setSelectedUser} socket={socket} />
+    {/* LEFT: Brand */}
+    <div className="d-flex align-items-center">
+      <span className="navbar-brand fw-semibold d-flex align-items-center mb-0" style={{ color: currentTheme.accent }}>
+        <i className="bi bi-chat-dots-fill me-2"></i> ChatConnect
+      </span>
     </div>
 
-    {/* CHAT WINDOW: 
-        - On Mobile: Show if a user is selected (d-block), hide if not (d-none)
-        - On Desktop: Always show (d-md-block)
-    */}
-    <div className={`col-md-8 col-lg-9 h-100 ${!selectedUser ? "d-none d-md-block" : "d-block"}`}>
-      <ChatWindow 
-        user={user} 
-        selectedUser={selectedUser} 
-        setSelectedUser={setSelectedUser} 
-        socket={socket} 
-        startCall={startCall} 
-      />
-    </div>
+    {/* RIGHT: Profile, Theme, and Logout */}
+    <div className="ms-auto d-flex align-items-center gap-3">
+      
+      {/* 1. Profile Name & Photo */}
+      <div className="d-flex align-items-center gap-2">
+        <span className="fw-medium d-none d-sm-inline" style={{ color: currentTheme.textColor }}>
+          {user?.name}
+        </span>
+        {user?.avatar ? (
+          <img
+            src={user.avatar.startsWith("http") ? user.avatar : `https://chat-b-7y5f.onrender.com${user.avatar.startsWith("/") ? user.avatar : `/${user.avatar}`}`}
+            alt="profile"
+            className="rounded-circle border"
+            style={{ width: "35px", height: "35px", objectFit: "cover", borderColor: currentTheme.accent }}
+          />
+        ) : (
+          <div className="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style={{ width: "35px", height: "35px" }}>
+            {user?.name?.charAt(0).toUpperCase()}
+          </div>
+        )}
+      </div>
 
+      {/* 2. Dark/Light Theme Toggle */}
+      <button 
+        className="btn btn-link nav-link p-0 border-0" 
+        onClick={toggleTheme} 
+        style={{ color: currentTheme.accent, fontSize: "1.2rem" }}
+      >
+        {darkMode ? <i className="bi bi-sun-fill"></i> : <i className="bi bi-moon-stars-fill"></i>}
+      </button>
+
+      {/* 3. Logout Option */}
+      <button 
+        className="btn btn-sm btn-outline-danger rounded-pill px-3 ms-2"
+        onClick={() => {
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+          window.location.href = "/";
+        }}
+      >
+        <i className="bi bi-box-arrow-right"></i> <span className="d-none d-md-inline">Logout</span>
+      </button>
+
+    </div>
   </div>
+</nav>
 
+      {/* 2. MAIN CONTENT AREA */}
+      <div className="flex-grow-1 overflow-hidden position-relative">
+        <div className="row g-0 h-100">
+          
+          {/* SIDEBAR */}
+          <div className={`col-md-4 col-lg-3 border-end h-100 ${selectedUser ? "d-none d-md-block" : "d-block"}`}>
+            <Sidebar user={user} setSelectedUser={setSelectedUser} socket={socket} />
+          </div>
 
-      {/* --- INCOMING CALL MODAL --- */}
+          {/* CHAT WINDOW */}
+          <div className={`col-md-8 col-lg-9 h-100 ${!selectedUser ? "d-none d-md-block" : "d-block"}`}>
+            <ChatWindow 
+              user={user} 
+              selectedUser={selectedUser} 
+              setSelectedUser={setSelectedUser} 
+              socket={socket} 
+              startCall={startCall} 
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 3. CALL SCREENS */}
       {incomingCall && (
         <div className="position-fixed top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center bg-dark bg-opacity-75" style={{ zIndex: 10001 }}>
           <div className="bg-white p-5 rounded-4 text-center shadow-lg border border-primary">
             <div className="mb-3 display-4">📞</div>
             <h3 className="fw-bold">Incoming {incomingCall.type} Call</h3>
-            <p className="text-muted">Someone is calling you...</p>
             <div className="d-flex gap-3 justify-content-center mt-4">
               <button className="btn btn-success btn-lg rounded-pill px-5 shadow-sm" onClick={onAccept}>Accept</button>
               <button className="btn btn-danger btn-lg rounded-pill px-5 shadow-sm" onClick={onReject}>Reject</button>
@@ -319,17 +390,14 @@ const ChatPage = () => {
         </div>
       )}
 
-      {/* --- OUTGOING RINGING SCREEN --- */}
       {callData && !callData.active && (
         <div className="position-fixed top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center bg-primary text-white" style={{ zIndex: 10001 }}>
           <div className="text-center">
-            {/* Pulsing Avatar Animation */}
             <div className="pulse-container mb-4">
               <div className="pulse-ring"></div>
               <div className="avatar-placeholder">{callData.user.name?.charAt(0)}</div>
             </div>
             <h2 className="fw-light">Calling {callData.user.name}...</h2>
-            <p className="opacity-75">Waiting for answer</p>
             <button className="btn btn-outline-light rounded-pill px-5 mt-5" onClick={() => {
               socket.emit("end-call", { to: callData.user._id });
               setCallData(null);
@@ -338,7 +406,6 @@ const ChatPage = () => {
         </div>
       )}
 
-      {/* --- THE ACTIVE CALL COMPONENT --- */}
       {callData?.active && (
         <Call
           socket={socket}
@@ -351,39 +418,10 @@ const ChatPage = () => {
       )}
 
       <style>{`
-        .pulse-container {
-          position: relative;
-          width: 120px;
-          height: 120px;
-          margin: 0 auto;
-        }
-        .avatar-placeholder {
-          width: 100%;
-          height: 100%;
-          background: white;
-          color: #007bff;
-          font-size: 3rem;
-          font-weight: bold;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          position: relative;
-          z-index: 2;
-        }
-        .pulse-ring {
-          position: absolute;
-          width: 100%;
-          height: 100%;
-          border-radius: 50%;
-          background: rgba(255, 255, 255, 0.4);
-          animation: pulse 2s infinite;
-          z-index: 1;
-        }
-        @keyframes pulse {
-          0% { transform: scale(1); opacity: 1; }
-          100% { transform: scale(2.5); opacity: 0; }
-        }
+        .pulse-container { position: relative; width: 120px; height: 120px; margin: 0 auto; }
+        .avatar-placeholder { width: 100%; height: 100%; background: white; color: #007bff; font-size: 3rem; font-weight: bold; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; z-index: 2; }
+        .pulse-ring { position: absolute; width: 100%; height: 100%; border-radius: 50%; background: rgba(255, 255, 255, 0.4); animation: pulse 2s infinite; z-index: 1; }
+        @keyframes pulse { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(2.5); opacity: 0; } }
       `}</style>
     </div>
   );

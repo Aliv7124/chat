@@ -357,8 +357,34 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     );
   }
 
+  const formatLastSeen = (dateString) => {
+    if (!dateString) return "offline";
+    const date = new Date(dateString);
+    
+    const day = date.getDate();
+    const month = date.toLocaleString('en-GB', { month: 'long' });
+    const time = date.toLocaleString('en-GB', { 
+      hour: 'numeric', 
+      minute: '2-digit', 
+      hour12: true 
+    }).toLowerCase().replace(' ', ''); // turning 5:06 PM into 5:06pm
+
+    // Logic for adding st, nd, rd, th
+    const getOrdinal = (n) => {
+      if (n > 3 && n < 21) return 'th';
+      switch (n % 10) {
+        case 1:  return "st";
+        case 2:  return "nd";
+        case 3:  return "rd";
+        default: return "th";
+      }
+    };
+
+    return `${day}${getOrdinal(day)} ${month} ${time}`;
+  };
+
   return (
-    <div className="d-flex flex-column vh-100 overflow-hidden bg-white shadow">
+    <div className="d-flex flex-column h-100 overflow-hidden bg-white shadow">
       
       {/* HEADER: Fixed with Back Button */}
       <div className={`d-flex align-items-center justify-content-between p-3 border-bottom ${darkMode ? "bg-dark text-white" : "bg-light text-dark"}`} style={{ flexShrink: 0, zIndex: 10 }}>
@@ -376,10 +402,23 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
             {selectedUser.name?.charAt(0).toUpperCase()}
           </div>
           
-          <div className="text-truncate">
-            <h6 className="mb-0 fw-bold text-truncate" style={{ maxWidth: "120px" }}>{selectedUser.name}</h6>
-            <small className="text-success">{isTyping ? "Typing..." : "Online"}</small>
-          </div>
+         <div className="text-truncate">
+      <h6 className="mb-0 fw-bold text-truncate" style={{ maxWidth: "120px" }}>
+        {selectedUser.name}
+      </h6>
+      
+      {isTyping ? (
+        <small className="text-success fw-bold">Typing...</small>
+      ) : (
+        <small className={selectedUser.isOnline ? "text-success" : "text-muted"}>
+          {selectedUser.isOnline ? (
+            <>● Online</>
+          ) : (
+            `Last seen ${formatLastSeen(selectedUser.lastSeen)}`
+          )}
+        </small>
+      )}
+    </div>
         </div>
 
         <div className="d-flex gap-2">
