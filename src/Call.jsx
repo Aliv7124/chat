@@ -209,24 +209,20 @@ const Call = ({ socket, user, otherUser, type, onEnd, isCaller }) => {
   const pc = useRef(null);
   const localStream = useRef(null);
   
-  // Timer State
   const [seconds, setSeconds] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
 
-  // 1. Timer Logic
+  // 1. Synchronized Timer (Starts only when isConnected is true)
   useEffect(() => {
     let interval = null;
     if (isConnected) {
       interval = setInterval(() => {
         setSeconds((prev) => prev + 1);
       }, 1000);
-    } else {
-      clearInterval(interval);
     }
-    return () => clearInterval(interval);
+    return () => { if (interval) clearInterval(interval); };
   }, [isConnected]);
 
-  // Helper to format 00:00
   const formatTime = (sec) => {
     const mins = Math.floor(sec / 60);
     const s = sec % 60;
@@ -238,9 +234,14 @@ const Call = ({ socket, user, otherUser, type, onEnd, isCaller }) => {
       try {
         pc.current = new RTCPeerConnection(ICE_SERVERS);
 
+        // 2. High-Quality Audio Constraints
         localStream.current = await navigator.mediaDevices.getUserMedia({
           video: type === "video",
-          audio: true,
+          audio: {
+            echoCancellation: true, // Prevents hearing yourself back
+            noiseSuppression: true, // Filters background hums
+            autoGainControl: true   // Normalizes volume
+          },
         });
 
         if (localVideoRef.current) localVideoRef.current.srcObject = localStream.current;
@@ -249,10 +250,11 @@ const Call = ({ socket, user, otherUser, type, onEnd, isCaller }) => {
           pc.current.addTrack(track, localStream.current);
         });
 
+        // 3. THE SYNC POINT: Timer starts here for BOTH users
         pc.current.ontrack = (e) => {
           if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = e.streams[0];
-            setIsConnected(true); // Start timer when video starts
+            setIsConnected(true); // HANDSHAKE COMPLETE
           }
         };
 
@@ -262,7 +264,7 @@ const Call = ({ socket, user, otherUser, type, onEnd, isCaller }) => {
           }
         };
 
-        // Signaling Listeners
+        // 4. Signaling Listeners
         socket.on("webrtc-offer", async ({ offer }) => {
           if (!pc.current) return;
           await pc.current.setRemoteDescription(new RTCSessionDescription(offer));
@@ -272,23 +274,27 @@ const Call = ({ socket, user, otherUser, type, onEnd, isCaller }) => {
         });
 
         socket.on("webrtc-answer", async ({ answer }) => {
-          if (!pc.current) return;
-          await pc.current.setRemoteDescription(new RTCSessionDescription(answer));
+          if (pc.current) await pc.current.setRemoteDescription(new RTCSessionDescription(answer));
         });
 
         socket.on("webrtc-ice", async ({ candidate }) => {
-          if (pc.current && candidate) {
-            await pc.current.addIceCandidate(new RTCIceCandidate(candidate));
-          }
+          if (pc.current && candidate) await pc.current.addIceCandidate(new RTCIceCandidate(candidate));
         });
 
+        // 5. Handshake Initiation
         if (isCaller) {
-          const offer = await pc.current.createOffer();
-          await pc.current.setLocalDescription(offer);
-          socket.emit("webrtc-offer", { to: otherUser._id, offer });
+          // A tiny delay ensures the callee's listeners are ready
+          setTimeout(async () => {
+            if (pc.current) {
+              const offer = await pc.current.createOffer();
+              await pc.current.setLocalDescription(offer);
+              socket.emit("webrtc-offer", { to: otherUser._id, offer });
+            }
+          }, 1000);
         }
+
       } catch (err) {
-        console.error("Call failed:", err);
+        console.error("Connection failed:", err);
         onEnd();
       }
     };
@@ -305,25 +311,38 @@ const Call = ({ socket, user, otherUser, type, onEnd, isCaller }) => {
   }, [otherUser._id]);
 
   return (
-    <div className="call-screen bg-black position-fixed top-0 start-0 w-100 vh-100 d-flex flex-column align-items-center justify-content-center" style={{ zIndex: 10000 }}>
-      
-      {/* Timer Display */}
-      <div className="position-absolute top-0 mt-4 text-white text-center" style={{ zIndex: 10 }}>
-        <h5 className="mb-0">{otherUser.name || "User"}</h5>
-        <div className="badge bg-danger rounded-pill px-3 py-2 mt-2" style={{ fontSize: "1rem", letterSpacing: "1px" }}>
-          {isConnected ? formatTime(seconds) : "Connecting..."}
+    <div className="bg-black position-fixed top-0 start-0 w-100 vh-100 d-flex flex-column" style={{ zIndex: 10000 }}>
+      {/* Header UI */}
+      <div className="position-absolute top-0 w-100 p-4 text-center text-white" style={{ zIndex: 11 }}>
+        <h5 className="mb-1">{otherUser.name || "User"}</h5>
+        <div className={`badge rounded-pill px-3 py-2 ${isConnected ? "bg-success" : "bg-danger pulse-text"}`}>
+          {isConnected ? formatTime(seconds) : "Connecting Audio/Video..."}
         </div>
       </div>
 
-      <video ref={remoteVideoRef} autoPlay playsInline className="w-100 h-100" style={{ objectFit: "cover" }} />
+      <video ref={remoteVideoRef} autoPlay playsInline className="w-100 h-100 object-fit-cover" />
       
-      <video ref={localVideoRef} autoPlay muted playsInline className="position-absolute bottom-0 end-0 m-4 rounded-3 border border-white shadow-lg" style={{ width: "180px" }} />
+      <video 
+        ref={localVideoRef} 
+        autoPlay muted playsInline 
+        className="position-absolute bottom-0 end-0 m-4 rounded-3 border border-2 border-white shadow-lg" 
+        style={{ width: "150px", transform: "scaleX(-1)" }} // Mirrors your own view
+      />
 
-      <div className="position-absolute bottom-0 mb-5">
-        <button className="btn btn-danger btn-lg rounded-circle p-3 shadow" onClick={() => { socket.emit("end-call", { to: otherUser._id }); onEnd(); }}>
+      {/* Hangup Button */}
+      <div className="position-absolute bottom-0 w-100 mb-5 d-flex justify-content-center">
+        <button 
+          className="btn btn-danger btn-lg rounded-circle p-3" 
+          onClick={() => { socket.emit("end-call", { to: otherUser._id }); onEnd(); }}
+        >
           <span style={{ fontSize: "1.5rem" }}>🔚</span>
         </button>
       </div>
+
+      <style>{`
+        .pulse-text { animation: blink 1.5s infinite; }
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+      `}</style>
     </div>
   );
 };
