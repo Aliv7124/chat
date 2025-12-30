@@ -191,14 +191,14 @@ useEffect(() => {
 export default ChatPage;
 */
 
-import React, { useState, useEffect, useContext } from "react";
+
+import React, { useState, useEffect, useContext, useRef } from "react";
 import Sidebar from "../components/Sidebar";
 import ChatWindow from "../components/ChatWindow";
 import Call from "../components/Call";
 import { AuthContext } from "../context/AuthContext";
 import { io } from "socket.io-client";
 
-// Connect to your backend URL
 const socket = io(import.meta.env.VITE_BACKEND_URL || "https://chat-b-7y5f.onrender.com");
 
 const ChatPage = () => {
@@ -206,28 +206,34 @@ const ChatPage = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [callData, setCallData] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null);
+  
+  // Ref for ringtone audio
+  const ringtoneRef = useRef(new Audio("/ringtone.mp3")); // Place a ringtone.mp3 in your public folder
 
   useEffect(() => {
     if (!user) return;
 
-    // Notify server that user is online
     socket.emit("user-online", user._id);
 
     socket.on("incoming-call", ({ from, type }) => {
       setIncomingCall({ from, type });
+      ringtoneRef.current.loop = true;
+      ringtoneRef.current.play().catch(err => console.log("Audio play blocked until user interaction"));
     });
 
     socket.on("call-accepted", () => {
-      // Caller transitions to active call
+      stopRingtone();
       setCallData((prev) => ({ ...prev, active: true }));
     });
 
     socket.on("call-rejected", () => {
+      stopRingtone();
       alert("Call was rejected");
       setCallData(null);
     });
 
     socket.on("call-ended", () => {
+      stopRingtone();
       setCallData(null);
       setIncomingCall(null);
     });
@@ -240,18 +246,22 @@ const ChatPage = () => {
     };
   }, [user]);
 
+  const stopRingtone = () => {
+    ringtoneRef.current.pause();
+    ringtoneRef.current.currentTime = 0;
+  };
+
   const startCall = (type) => {
     if (!selectedUser) return;
     socket.emit("call-user", { from: user._id, to: selectedUser._id, type });
-    // Set state to "Waiting" (active: false)
     setCallData({ user: selectedUser, type, isCaller: true, active: false });
   };
 
   const onAccept = () => {
+    stopRingtone();
     socket.emit("accept-call", { to: incomingCall.from });
-    // Callee joins immediately (active: true)
     setCallData({
-      user: { _id: incomingCall.from },
+      user: { _id: incomingCall.from, name: "Partner" }, // Pass name if available
       type: incomingCall.type,
       isCaller: false,
       active: true,
@@ -260,63 +270,57 @@ const ChatPage = () => {
   };
 
   const onReject = () => {
+    stopRingtone();
     socket.emit("reject-call", { to: incomingCall.from });
     setIncomingCall(null);
   };
 
   return (
-    <div className="container-fluid vh-100 p-0 overflow-hidden">
+    <div className="container-fluid vh-100 p-0 overflow-hidden position-relative">
       <div className="row g-0 h-100">
-        {/* Sidebar: Pass setSelectedUser to update the chat */}
         <div className="col-md-4 col-lg-3 border-end h-100">
-          <Sidebar 
-            user={user} 
-            setSelectedUser={setSelectedUser} 
-            socket={socket} 
-          />
+          <Sidebar user={user} setSelectedUser={setSelectedUser} socket={socket} />
         </div>
-
-        {/* Chat Window: Pass startCall to trigger calls */}
         <div className="col-md-8 col-lg-9 h-100">
-          <ChatWindow
-            user={user}
-            selectedUser={selectedUser}
-            socket={socket}
-            startCall={startCall}
-          />
+          <ChatWindow user={user} selectedUser={selectedUser} socket={socket} startCall={startCall} />
         </div>
       </div>
 
-      {/* --- CALL OVERLAYS --- */}
-
-      {/* 1. Incoming Call UI */}
+      {/* --- INCOMING CALL MODAL --- */}
       {incomingCall && (
         <div className="position-fixed top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center bg-dark bg-opacity-75" style={{ zIndex: 10001 }}>
-          <div className="bg-white p-4 rounded-3 text-center shadow-lg">
-            <h4>Incoming {incomingCall.type} Call...</h4>
+          <div className="bg-white p-5 rounded-4 text-center shadow-lg border border-primary">
+            <div className="mb-3 display-4">📞</div>
+            <h3 className="fw-bold">Incoming {incomingCall.type} Call</h3>
+            <p className="text-muted">Someone is calling you...</p>
             <div className="d-flex gap-3 justify-content-center mt-4">
-              <button className="btn btn-success px-4" onClick={onAccept}>Accept ✅</button>
-              <button className="btn btn-danger px-4" onClick={onReject}>Reject ❌</button>
+              <button className="btn btn-success btn-lg rounded-pill px-5 shadow-sm" onClick={onAccept}>Accept</button>
+              <button className="btn btn-danger btn-lg rounded-pill px-5 shadow-sm" onClick={onReject}>Reject</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 2. Outgoing Call "Ringing" Screen */}
+      {/* --- OUTGOING RINGING SCREEN --- */}
       {callData && !callData.active && (
-        <div className="position-fixed top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center bg-primary" style={{ zIndex: 10001 }}>
-          <div className="text-white text-center">
-            <div className="spinner-border mb-3" role="status"></div>
-            <h3>Calling {callData.user.name}...</h3>
-            <button className="btn btn-light mt-4" onClick={() => {
+        <div className="position-fixed top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center bg-primary text-white" style={{ zIndex: 10001 }}>
+          <div className="text-center">
+            {/* Pulsing Avatar Animation */}
+            <div className="pulse-container mb-4">
+              <div className="pulse-ring"></div>
+              <div className="avatar-placeholder">{callData.user.name?.charAt(0)}</div>
+            </div>
+            <h2 className="fw-light">Calling {callData.user.name}...</h2>
+            <p className="opacity-75">Waiting for answer</p>
+            <button className="btn btn-outline-light rounded-pill px-5 mt-5" onClick={() => {
               socket.emit("end-call", { to: callData.user._id });
               setCallData(null);
-            }}>Cancel</button>
+            }}>Cancel Call</button>
           </div>
         </div>
       )}
 
-      {/* 3. The Actual WebRTC Video/Audio Component */}
+      {/* --- THE ACTIVE CALL COMPONENT --- */}
       {callData?.active && (
         <Call
           socket={socket}
@@ -327,6 +331,42 @@ const ChatPage = () => {
           onEnd={() => setCallData(null)}
         />
       )}
+
+      <style>{`
+        .pulse-container {
+          position: relative;
+          width: 120px;
+          height: 120px;
+          margin: 0 auto;
+        }
+        .avatar-placeholder {
+          width: 100%;
+          height: 100%;
+          background: white;
+          color: #007bff;
+          font-size: 3rem;
+          font-weight: bold;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          position: relative;
+          z-index: 2;
+        }
+        .pulse-ring {
+          position: absolute;
+          width: 100%;
+          height: 100%;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.4);
+          animation: pulse 2s infinite;
+          z-index: 1;
+        }
+        @keyframes pulse {
+          0% { transform: scale(1); opacity: 1; }
+          100% { transform: scale(2.5); opacity: 0; }
+        }
+      `}</style>
     </div>
   );
 };
