@@ -195,7 +195,7 @@ export default ChatPage;
 import React, { useState, useEffect, useContext, useRef } from "react";
 import Sidebar from "../components/Sidebar";
 import ChatWindow from "../components/ChatWindow";
-import Call from "../components/Call";
+import Call from "../Call";
 import { AuthContext } from "../context/AuthContext";
 import { io } from "socket.io-client";
 
