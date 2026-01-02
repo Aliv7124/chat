@@ -375,6 +375,8 @@ export default ChatWindow;
 */
 
 
+
+/*
 import React, { useEffect, useState, useRef } from "react";
 import EmojiPicker from "emoji-picker-react";
 import API from "../api";
@@ -389,18 +391,19 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   const [userStatus, setUserStatus] = useState("offline");
   const [showProfileModal, setShowProfileModal] = useState(false);
 
+  const [recording, setRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const audioChunksRef = useRef([]);
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
   const BASE_URL = "https://chat-b-7y5f.onrender.com";
-
-  // ✅ Generate a consistent Room ID for both users
-  const roomId = [String(user?._id), String(selectedUser?._id)].sort().join("_");
 
   // --- 1. UI Helpers ---
   const renderTicks = (status) => {
     const tickStyle = { fontSize: "16px", fontWeight: "bold", marginLeft: "4px" };
     if (status === "seen") return <i className="bi bi-check-all" style={{ ...tickStyle, color: "#00FFF0" }}></i>;
-    if (status === "delivered") return <i className="bi bi-check-all" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.6)" }}></i>;
-    return <i className="bi bi-check" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.6)" }}></i>;
+    if (status === "delivered") return <i className="bi bi-check-all" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.7)" }}></i>;
+    return <i className="bi bi-check" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.7)" }}></i>;
   };
 
   const formatLastSeen = (ts) => {
@@ -409,85 +412,99 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     return `${date.getDate()} ${date.toLocaleString('en-US', { month: 'short' })} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   };
 
-  // --- 2. Message Actions ---
-  const handleTyping = (e) => {
-    setText(e.target.value);
-    if (!socket) return;
-
-    // ✅ Emit typing event to room
-    socket.emit("typing", { roomId });
-
-    // Stop typing indicator after 2 seconds of no input
-    clearTimeout(window.typingTimer);
-    window.typingTimer = setTimeout(() => {
-      socket.emit("stopTyping", { roomId });
-    }, 2000);
-  };
-
+  // --- 2. Message & File Actions ---
   const handleSend = async (e) => {
     if (e) e.preventDefault();
     if (!text.trim() || !selectedUser?._id) return;
     
+    const formData = new FormData();
+    formData.append("receiverId", selectedUser._id);
+    formData.append("content", text);
+    
     try {
-      const res = await API.post("/messages", { receiverId: selectedUser._id, content: text }, {
-        headers: { Authorization: `Bearer ${user.token}` },
+      const res = await API.post("/messages", formData, {
+        headers: { Authorization: `Bearer ${user.token}`, "Content-Type": "multipart/form-data" },
       });
       setMessages((prev) => [...prev, res.data]);
-      socket.emit("sendMessage", res.data); // Backend handles delivery status
+      socket.emit("sendMessage", res.data);
       setText("");
-      socket.emit("stopTyping", { roomId });
+      setShowEmojiPicker(false);
     } catch (err) { console.error(err); }
   };
 
-  const deleteMessage = async (messageId) => {
-    if (!window.confirm("Delete this message?")) return;
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !selectedUser?._id) return;
+    const formData = new FormData();
+    formData.append("receiverId", selectedUser._id);
+    formData.append("file", file);
     try {
-      await API.delete(`/messages/${messageId}`, {
-        headers: { Authorization: `Bearer ${user.token}` },
+      const res = await API.post("/messages", formData, {
+        headers: { Authorization: `Bearer ${user.token}`, "Content-Type": "multipart/form-data" },
       });
-      setMessages((prev) => prev.filter((m) => m._id !== messageId));
-      // ✅ Sync deletion with receiver
-      socket.emit("deleteMessage", { messageId, receiverId: selectedUser._id });
-    } catch (err) { console.error("Delete failed:", err); }
+      setMessages((prev) => [...prev, res.data]);
+      socket.emit("sendMessage", res.data);
+      e.target.value = ""; 
+    } catch (err) { console.error(err); }
   };
 
-  // --- 3. Effects & Sockets ---
-  useEffect(() => {
+  const toggleRecording = async () => {
+    if (!recording) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        audioChunksRef.current = [];
+        recorder.ondataavailable = (e) => audioChunksRef.current.push(e.data);
+        recorder.onstop = async () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+          const file = new File([audioBlob], "voice.webm", { type: "audio/webm" });
+          const formData = new FormData();
+          formData.append("receiverId", selectedUser?._id);
+          formData.append("file", file);
+          const res = await API.post("/messages", formData, {
+            headers: { Authorization: `Bearer ${user.token}`, "Content-Type": "multipart/form-data" },
+          });
+          setMessages((prev) => [...prev, res.data]);
+          socket.emit("sendMessage", res.data);
+          stream.getTracks().forEach(track => track.stop());
+        };
+        recorder.start();
+        setMediaRecorder(recorder);
+        setRecording(true);
+      } catch (err) { alert("Mic access denied"); }
+    } else {
+      mediaRecorder?.stop();
+      setRecording(false);
+    }
+  };
+
+  const handleTyping = (e) => {
+    setText(e.target.value);
     if (!socket || !selectedUser?._id) return;
+    const roomId = [user._id, selectedUser._id].sort().join("_");
+    socket.emit("typing", roomId);
+    clearTimeout(window.t_timeout);
+    window.t_timeout = setTimeout(() => socket.emit("stopTyping", roomId), 2000);
+  };
 
-    // ✅ MUST Join Room to receive targeted events
-    socket.emit("joinChat", roomId);
-
-    socket.on("receiveMessage", (message) => {
-      if (message.sender === selectedUser._id) {
-        setMessages((prev) => [...prev, message]);
-        // Notify sender that message is seen
-        socket.emit("messageSeen", { messageId: message._id, senderId: message.sender });
+  // --- 3. Effects ---
+  
+  // ✅ NEW: Fetch full user details (Bio/Avatar) when selectedUser changes
+  useEffect(() => {
+    const fetchFullDetails = async () => {
+      try {
+        if (!selectedUser?._id) return;
+        const res = await API.get(`/users/${selectedUser._id}`, {
+          headers: { Authorization: `Bearer ${user.token}` },
+        });
+        // Merge the new data (bio, email) into the existing selectedUser state
+        setSelectedUser(prev => ({ ...prev, ...res.data }));
+      } catch (err) {
+        console.error("Could not fetch user bio:", err);
       }
-    });
-
-    socket.on("messageDeleted", (messageId) => {
-      setMessages((prev) => prev.filter((m) => m._id !== messageId));
-    });
-
-    socket.on("messageStatusUpdate", ({ messageId, status }) => {
-      setMessages((prev) => prev.map((m) => m._id === messageId ? { ...m, status } : m));
-    });
-
-    socket.on("typing", (data) => {
-      if (data.senderId === selectedUser._id) setIsTyping(true);
-    });
-
-    socket.on("stopTyping", () => setIsTyping(false));
-
-    return () => {
-      socket.off("receiveMessage");
-      socket.off("messageDeleted");
-      socket.off("messageStatusUpdate");
-      socket.off("typing");
-      socket.off("stopTyping");
     };
-  }, [socket, selectedUser?._id, roomId]);
+    fetchFullDetails();
+  }, [selectedUser?._id]);
 
   useEffect(() => {
     if (!selectedUser?._id || !user?.token) return;
@@ -501,16 +518,56 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     };
     fetchChatData();
     setUserStatus(selectedUser.isOnline ? "online" : selectedUser.lastSeen);
-  }, [selectedUser?._id]);
+  }, [selectedUser?._id, user.token]);
+
+  useEffect(() => {
+    if (!socket) return;
+    socket.on("receiveMessage", (message) => setMessages(prev => [...prev, message]));
+    socket.on("typing", () => setIsTyping(true));
+    socket.on("stopTyping", () => setIsTyping(false));
+    return () => {
+        socket.off("receiveMessage");
+        socket.off("typing");
+        socket.off("stopTyping");
+    };
+  }, [socket]);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
+  if (!selectedUser) return <div className="h-100 d-flex align-items-center justify-content-center bg-light text-muted">Select a user to chat</div>;
+
   return (
     <div className="d-flex flex-column h-100 position-relative bg-white shadow-sm overflow-hidden">
-      {/* HEADER */}
+      
+      
+      {showProfileModal && (
+        <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style={{ zIndex: 3000, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} onClick={() => setShowProfileModal(false)}>
+          <div className={`p-4 rounded-4 shadow-lg text-center animate__animated animate__zoomIn ${darkMode ? "bg-dark text-white border border-secondary" : "bg-white"}`} style={{ width: "320px" }} onClick={e => e.stopPropagation()}>
+            <img 
+                src={selectedUser.avatar ? `${BASE_URL}${selectedUser.avatar}` : "https://via.placeholder.com/150"} 
+                className="rounded-circle border border-4 border-primary mb-3 shadow" 
+                style={{ width: "130px", height: "130px", objectFit: "cover" }} 
+                onError={(e) => e.target.src = "https://via.placeholder.com/150"}
+            />
+            <h4 className="fw-bold mb-1">{selectedUser.name}</h4>
+            <p className="text-muted small mb-3">{selectedUser.email}</p>
+            
+            <div className={`p-3 rounded-3 text-start mb-4 ${darkMode ? "bg-secondary bg-opacity-25" : "bg-light text-dark"}`}>
+              <small className="fw-bold text-primary text-uppercase" style={{fontSize: '10px'}}>About / Bio</small>
+              <div className="small mt-1" style={{ whiteSpace: "pre-wrap" }}>
+                {selectedUser.bio || "Available"}
+              </div>
+            </div>
+            
+            <button className="btn btn-primary w-100 rounded-pill fw-bold" onClick={() => setShowProfileModal(false)}>Close</button>
+          </div>
+        </div>
+      )}
+
+      
       <div className={`p-3 border-bottom d-flex align-items-center justify-content-between ${darkMode ? "bg-dark text-white border-secondary" : "bg-light"}`}>
-        <div className="d-flex align-items-center">
-          <div className="bg-primary rounded-circle me-3 overflow-hidden" style={{ width: "45px", height: "45px" }}>
+        <div className="d-flex align-items-center" onClick={() => setShowProfileModal(true)} style={{ cursor: "pointer" }}>
+          <div className="bg-primary rounded-circle me-3 overflow-hidden shadow-sm" style={{ width: "45px", height: "45px" }}>
             {selectedUser?.avatar ? (
                 <img src={`${BASE_URL}${selectedUser.avatar}`} className="w-100 h-100 object-fit-cover" />
             ) : (
@@ -519,23 +576,39 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
           </div>
           <div>
             <div className="fw-bold">{selectedUser?.name}</div>
-            <small className={isTyping ? "text-success fw-bold" : (userStatus === "online" ? "text-success" : "text-muted")}>
+            <small className={userStatus === "online" ? "text-success fw-bold" : "text-muted"}>
               {isTyping ? "typing..." : (userStatus === "online" ? "Online" : formatLastSeen(userStatus))}
             </small>
           </div>
         </div>
+        <div className="d-flex gap-2">
+            <button className="btn btn-outline-primary btn-sm rounded-circle" onClick={() => startCall("audio")}><i className="bi bi-telephone"></i></button>
+            <button className="btn btn-outline-primary btn-sm rounded-circle" onClick={() => startCall("video")}><i className="bi bi-camera-video"></i></button>
+        </div>
       </div>
 
-      {/* MESSAGES AREA */}
+      
       <div className="flex-grow-1 p-3 overflow-auto" style={{ backgroundColor: darkMode ? "#121212" : "#f0f2f5" }}>
         {messages.map((msg) => (
           <div key={msg._id} className={`d-flex mb-2 ${msg.sender === user?._id ? "justify-content-end" : "justify-content-start"}`}>
             <div 
-              className="p-2 px-3 rounded-4 shadow-sm" 
-              style={{ maxWidth: '75%', backgroundColor: msg.sender === user?._id ? "#075E54" : "#ffffff", color: msg.sender === user?._id ? "white" : "black" }}
-              onDoubleClick={() => msg.sender === user?._id && deleteMessage(msg._id)}
+                className={`position-relative p-2 px-3 rounded-4 shadow-sm ${msg.sender === user?._id ? "text-white" : "bg-white text-dark border"}`} 
+                style={{ 
+                    maxWidth: '75%',
+                    // ✅ FIXED: Using WhatsApp Dark Green for Sender
+                    backgroundColor: msg.sender === user?._id ? "#075E54" : "#ffffff" 
+                }}
             >
-              <p className="mb-1 text-break">{msg.content}</p>
+              {msg.fileUrl && (
+                <div className="my-1">
+                  {msg.fileType === "image" ? (
+                    <img src={`${BASE_URL}${msg.fileUrl}`} style={{maxWidth: '100%', borderRadius: '8px', cursor: 'pointer'}} className="img-fluid" onClick={() => window.open(`${BASE_URL}${msg.fileUrl}`, '_blank')} />
+                  ) : (
+                    <audio controls src={`${BASE_URL}${msg.fileUrl}`} className="w-100" style={{height: '30px'}} />
+                  )}
+                </div>
+              )}
+              <p className="mb-1 text-break pe-2">{msg.content}</p>
               <div className="d-flex align-items-center justify-content-end" style={{ fontSize: "9px", opacity: 0.8 }}>
                 <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 {msg.sender === user?._id && renderTicks(msg.status)}
@@ -546,17 +619,303 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
         <div ref={messagesEndRef} />
       </div>
 
-      {/* INPUT AREA */}
-      <div className="p-3 border-top">
+
+      <div className={`p-3 border-top ${darkMode ? "bg-dark border-secondary" : "bg-white"}`}>
         <form onSubmit={handleSend} className="d-flex align-items-center gap-2">
+          <button type="button" className={`btn rounded-circle ${recording ? "btn-danger shadow" : "btn-light border"}`} onClick={toggleRecording}>
+            <i className={`bi ${recording ? "bi-stop-circle" : "bi-mic"}`}></i>
+          </button>
+          
+          <button type="button" className="btn btn-light border rounded-circle" onClick={() => fileInputRef.current?.click()}>
+            <i className="bi bi-paperclip"></i>
+          </button>
+          <input type="file" ref={fileInputRef} className="d-none" onChange={handleFileChange} />
+          
+          <button type="button" className="btn btn-light border rounded-circle" onClick={() => setShowEmojiPicker(!showEmojiPicker)}>
+            <i className="bi bi-emoji-smile"></i>
+          </button>
+
+          {showEmojiPicker && (
+            <div className="position-absolute" style={{ bottom: "85px", left: "15px", zIndex: 1000 }}>
+              <EmojiPicker onEmojiClick={(e) => setText(p => p + e.emoji)} theme={darkMode ? "dark" : "light"} />
+            </div>
+          )}
+
           <input 
             type="text" 
-            className="form-control rounded-pill" 
+            className="form-control rounded-pill px-3 shadow-none border" 
             placeholder="Type a message..." 
             value={text} 
             onChange={handleTyping} 
           />
-          <button type="submit" className="btn btn-primary rounded-circle">
+
+          <button type="submit" className="btn btn-primary rounded-circle shadow-sm" style={{ width: "42px", height: "42px" }}>
+            <i className="bi bi-send-fill"></i>
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default ChatWindow;
+
+*/
+
+
+
+
+import React, { useEffect, useState, useRef } from "react";
+import EmojiPicker from "emoji-picker-react";
+import API from "../api";
+import { useTheme } from "../ThemeContext";
+
+const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) => {
+  const { darkMode } = useTheme();
+  const [messages, setMessages] = useState([]);
+  const [text, setText] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [userStatus, setUserStatus] = useState("offline");
+  const [showProfileModal, setShowProfileModal] = useState(false);
+
+  const [recording, setRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const audioChunksRef = useRef([]);
+  const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const BASE_URL = "https://chat-b-7y5f.onrender.com";
+
+  // --- 1. UI HELPERS ---
+  const renderTicks = (status) => {
+    const tickStyle = { fontSize: "16px", fontWeight: "bold", marginLeft: "4px" };
+    if (status === "seen") return <i className="bi bi-check-all" style={{ ...tickStyle, color: "#00FFF0" }}></i>;
+    if (status === "delivered") return <i className="bi bi-check-all" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.7)" }}></i>;
+    return <i className="bi bi-check" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.7)" }}></i>;
+  };
+
+  const formatLastSeen = (ts) => {
+    if (!ts || ts === "online") return ts === "online" ? "Online" : "Offline";
+    const date = new Date(ts);
+    return `${date.getDate()} ${date.toLocaleString('en-US', { month: 'short' })} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  };
+
+  // --- 2. ACTIONS ---
+  const handleSend = async (e) => {
+    if (e) e.preventDefault();
+    if (!text.trim() || !selectedUser?._id) return;
+    const formData = new FormData();
+    formData.append("receiverId", selectedUser._id);
+    formData.append("content", text);
+    try {
+      const res = await API.post("/messages", formData, {
+        headers: { Authorization: `Bearer ${user.token}`, "Content-Type": "multipart/form-data" },
+      });
+      setMessages((prev) => [...prev, res.data]);
+      socket.emit("sendMessage", res.data);
+      setText("");
+      setShowEmojiPicker(false);
+    } catch (err) { console.error(err); }
+  };
+
+  const handleDeleteMessage = async (messageId) => {
+    try {
+      await API.delete(`/messages/${messageId}`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      setMessages((prev) => prev.filter((m) => m._id !== messageId));
+      socket.emit("deleteMessage", { messageId, roomId: [user._id, selectedUser._id].sort().join("_") });
+    } catch (err) { console.error("Delete failed", err); }
+  };
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !selectedUser?._id) return;
+    const formData = new FormData();
+    formData.append("receiverId", selectedUser._id);
+    formData.append("file", file);
+    try {
+      const res = await API.post("/messages", formData, {
+        headers: { Authorization: `Bearer ${user.token}`, "Content-Type": "multipart/form-data" },
+      });
+      setMessages((prev) => [...prev, res.data]);
+      socket.emit("sendMessage", res.data);
+      e.target.value = ""; 
+    } catch (err) { console.error(err); }
+  };
+
+  const toggleRecording = async () => {
+    if (!recording) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        audioChunksRef.current = [];
+        recorder.ondataavailable = (e) => audioChunksRef.current.push(e.data);
+        recorder.onstop = async () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+          const file = new File([audioBlob], "voice.webm", { type: "audio/webm" });
+          const formData = new FormData();
+          formData.append("receiverId", selectedUser?._id);
+          formData.append("file", file);
+          const res = await API.post("/messages", formData, {
+            headers: { Authorization: `Bearer ${user.token}`, "Content-Type": "multipart/form-data" },
+          });
+          setMessages((prev) => [...prev, res.data]);
+          socket.emit("sendMessage", res.data);
+          stream.getTracks().forEach(track => track.stop());
+        };
+        recorder.start();
+        setMediaRecorder(recorder);
+        setRecording(true);
+      } catch (err) { alert("Mic access denied"); }
+    } else {
+      mediaRecorder?.stop();
+      setRecording(false);
+    }
+  };
+
+  const handleTyping = (e) => {
+    setText(e.target.value);
+    if (!socket || !selectedUser?._id) return;
+    const roomId = [user._id, selectedUser._id].sort().join("_");
+    socket.emit("typing", { roomId, senderId: user._id });
+    clearTimeout(window.t_timeout);
+    window.t_timeout = setTimeout(() => socket.emit("stopTyping", { roomId, senderId: user._id }), 2000);
+  };
+
+  // --- 3. SOCKET & EFFECTS ---
+  useEffect(() => {
+    if (!socket || !selectedUser?._id || messages.length === 0) return;
+    const unread = messages.filter(m => m.sender === selectedUser._id && m.status !== "seen").map(m => m._id);
+    if (unread.length > 0) {
+      socket.emit("markAsSeen", { messageIds: unread, senderId: selectedUser._id, receiverId: user._id });
+    }
+  }, [messages, selectedUser?._id, socket, user._id]);
+
+  useEffect(() => {
+    if (!socket || !selectedUser?._id) return;
+    socket.on("receiveMessage", (msg) => { if (msg.sender === selectedUser._id) setMessages(p => [...p, msg]); });
+    socket.on("typing", (data) => { if (data.senderId === selectedUser._id) setIsTyping(true); });
+    socket.on("stopTyping", (data) => { if (data.senderId === selectedUser._id) setIsTyping(false); });
+    socket.on("messageStatusUpdate", ({ messageIds, status }) => {
+      setMessages(p => p.map(m => messageIds.includes(m._id) ? { ...m, status } : m));
+    });
+    socket.on("messageDeleted", (id) => setMessages(p => p.filter(m => m._id !== id)));
+    return () => {
+      socket.off("receiveMessage"); socket.off("typing"); socket.off("stopTyping");
+      socket.off("messageStatusUpdate"); socket.off("messageDeleted");
+    };
+  }, [socket, selectedUser?._id]);
+
+  useEffect(() => {
+    if (!selectedUser?._id) return;
+    const fetchChatData = async () => {
+      try {
+        const res = await API.get(`/messages/${selectedUser._id}`, { headers: { Authorization: `Bearer ${user.token}` } });
+        setMessages(res.data);
+      } catch (err) { console.error(err); }
+    };
+    fetchChatData();
+    setUserStatus(selectedUser?.isOnline ? "online" : selectedUser?.lastSeen);
+  }, [selectedUser?._id, user.token]);
+
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  if (!selectedUser) return <div className="h-100 d-flex align-items-center justify-content-center bg-light text-muted">Select a user to chat</div>;
+
+  return (
+    <div className="d-flex flex-column h-100 position-relative bg-white shadow-sm overflow-hidden">
+      
+      {/* PROFILE MODAL */}
+      {showProfileModal && (
+        <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style={{ zIndex: 3000, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} onClick={() => setShowProfileModal(false)}>
+          <div className={`p-4 rounded-4 shadow-lg text-center ${darkMode ? "bg-dark text-white border border-secondary" : "bg-white"}`} style={{ width: "320px" }} onClick={e => e.stopPropagation()}>
+            <img src={selectedUser.avatar ? `${BASE_URL}${selectedUser.avatar}` : "https://via.placeholder.com/150"} className="rounded-circle mb-3 shadow" style={{ width: "100px", height: "100px", objectFit: "cover" }} />
+            <h4 className="fw-bold mb-1">{selectedUser.name}</h4>
+            <div className={`p-3 rounded-3 text-start mt-3 ${darkMode ? "bg-secondary bg-opacity-25" : "bg-light"}`}>
+              <small className="fw-bold text-primary text-uppercase" style={{fontSize: '10px'}}>About</small>
+              <div className="small mt-1">{selectedUser.bio || "Available"}</div>
+            </div>
+            <button className="btn btn-primary w-100 rounded-pill mt-4 fw-bold" onClick={() => setShowProfileModal(false)}>Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* HEADER */}
+      <div className={`p-3 border-bottom d-flex align-items-center justify-content-between ${darkMode ? "bg-dark text-white border-secondary" : "bg-light"}`}>
+        <div className="d-flex align-items-center" onClick={() => setShowProfileModal(true)} style={{ cursor: "pointer" }}>
+          <div className="bg-primary rounded-circle me-3 overflow-hidden shadow-sm" style={{ width: "45px", height: "45px" }}>
+            {selectedUser?.avatar ? <img src={`${BASE_URL}${selectedUser.avatar}`} className="w-100 h-100 object-fit-cover" /> : <div className="h-100 d-flex align-items-center justify-content-center text-white fw-bold">{selectedUser?.name?.charAt(0).toUpperCase()}</div>}
+          </div>
+          <div>
+            <div className="fw-bold">{selectedUser?.name}</div>
+            <small className={isTyping ? "text-success fw-bold" : "text-muted"}>
+              {isTyping ? "typing..." : (userStatus === "online" ? "Online" : formatLastSeen(userStatus))}
+            </small>
+          </div>
+        </div>
+        {/* RESTORED CALL BUTTONS */}
+        <div className="d-flex gap-2">
+            <button className="btn btn-outline-primary btn-sm rounded-circle" onClick={() => startCall("audio")}><i className="bi bi-telephone"></i></button>
+            <button className="btn btn-outline-primary btn-sm rounded-circle" onClick={() => startCall("video")}><i className="bi bi-camera-video"></i></button>
+        </div>
+      </div>
+
+      {/* MESSAGES AREA */}
+      <div className="flex-grow-1 p-3 overflow-auto" style={{ backgroundColor: darkMode ? "#121212" : "#f0f2f5" }}>
+        {messages.map((msg) => (
+          <div key={msg._id} className={`d-flex mb-2 ${msg.sender === user?._id ? "justify-content-end" : "justify-content-start"}`}>
+            <div className={`dropdown position-relative p-2 px-3 rounded-4 shadow-sm ${msg.sender === user?._id ? "text-white" : "bg-white text-dark border"}`} 
+                 style={{ maxWidth: '75%', backgroundColor: msg.sender === user?._id ? "#075E54" : "#ffffff" }}>
+              
+              <button className="btn btn-sm p-0 position-absolute top-0 end-0 me-1 mt-1 opacity-50" data-bs-toggle="dropdown" style={{color: 'inherit', border: 'none'}}><i className="bi bi-chevron-down" style={{fontSize: '10px'}}></i></button>
+              <ul className="dropdown-menu dropdown-menu-end shadow-sm border-0 small">
+                <li><button className="dropdown-item text-danger" onClick={() => handleDeleteMessage(msg._id)}>Delete</button></li>
+                <li><button className="dropdown-item" onClick={() => navigator.clipboard.writeText(msg.content)}>Copy</button></li>
+              </ul>
+
+              {msg.fileUrl && (
+                <div className="my-1">
+                  {msg.fileType === "image" ? <img src={`${BASE_URL}${msg.fileUrl}`} className="img-fluid rounded" onClick={() => window.open(`${BASE_URL}${msg.fileUrl}`, '_blank')} /> : <audio controls src={`${BASE_URL}${msg.fileUrl}`} className="w-100" style={{height: '30px'}} />}
+                </div>
+              )}
+              
+              <p className="mb-1 text-break pe-3">{msg.content}</p>
+              <div className="d-flex align-items-center justify-content-end" style={{ fontSize: "9px", opacity: 0.8 }}>
+                <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                {msg.sender === user?._id && renderTicks(msg.status)}
+              </div>
+            </div>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* RESTORED INPUT AREA */}
+      <div className={`p-3 border-top ${darkMode ? "bg-dark border-secondary" : "bg-white"}`}>
+        <form onSubmit={handleSend} className="d-flex align-items-center gap-2">
+          <button type="button" className={`btn rounded-circle ${recording ? "btn-danger shadow animate__animated animate__pulse animate__infinite" : "btn-light border"}`} onClick={toggleRecording}>
+            <i className={`bi ${recording ? "bi-stop-fill" : "bi-mic-fill"}`}></i>
+          </button>
+          
+          <button type="button" className="btn btn-light border rounded-circle" onClick={() => fileInputRef.current?.click()}>
+            <i className="bi bi-paperclip"></i>
+          </button>
+          <input type="file" ref={fileInputRef} className="d-none" onChange={handleFileChange} />
+          
+          <div className="position-relative">
+            <button type="button" className={`btn rounded-circle ${showEmojiPicker ? "btn-primary" : "btn-light border"}`} onClick={() => setShowEmojiPicker(!showEmojiPicker)}>
+              <i className="bi bi-emoji-smile"></i>
+            </button>
+            {showEmojiPicker && (
+              <div className="position-absolute" style={{ bottom: "60px", left: "0", zIndex: 1000 }}>
+                <EmojiPicker onEmojiClick={(e) => setText(prev => prev + e.emoji)} theme={darkMode ? "dark" : "light"} />
+              </div>
+            )}
+          </div>
+
+          <input type="text" className="form-control rounded-pill px-3 shadow-none border" placeholder="Type a message..." value={text} onChange={handleTyping} />
+          <button type="submit" className="btn btn-primary rounded-circle shadow-sm" style={{ width: "42px", height: "42px", flexShrink: 0 }}>
             <i className="bi bi-send-fill"></i>
           </button>
         </form>
