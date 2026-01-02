@@ -332,37 +332,21 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   const fileInputRef = useRef(null);
   const BASE_URL = "https://chat-b-7y5f.onrender.com";
 
- // --- 1. Tick Logic (Increased Size & High Contrast) ---
+  // --- 1. Tick Logic (Increased Size & High Contrast) ---
   const renderTicks = (status) => {
     const tickStyle = { 
-      fontSize: "20px", // Increased size
+      fontSize: "16px", // 20px was quite large, 16px is balanced but clear
       fontWeight: "bold", 
       marginLeft: "4px" 
     };
 
     if (status === "delivered") {
-      return (
-        <i 
-          className="bi bi-check-all" 
-          style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.6)" }}
-        ></i>
-      );
+      return <i className="bi bi-check-all" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.6)" }}></i>;
     }
     if (status === "seen") {
-      return (
-        <i 
-          className="bi bi-check-all" 
-          style={{ ...tickStyle, color: "#00FFF0" }}
-        ></i>
-      );
+      return <i className="bi bi-check-all" style={{ ...tickStyle, color: "#00FFF0" }}></i>;
     }
-    // Default: sent (single tick)
-    return (
-      <i 
-        className="bi bi-check" 
-        style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.6)" }}
-      ></i>
-    );
+    return <i className="bi bi-check" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.6)" }}></i>;
   };
 
   const formatLastSeen = (ts) => {
@@ -385,18 +369,28 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     }
   }, [selectedUser]);
 
-  // --- 2. Mark as Seen Trigger ---
+  // --- 2. Mark as Seen Trigger (CRITICAL FIX) ---
   useEffect(() => {
     if (!socket || !selectedUser?._id || messages.length === 0) return;
+
+    // Filter messages sent by the peer that are not seen yet
     const unreadIds = messages
       .filter((m) => m.sender === selectedUser._id && m.status !== "seen")
       .map((m) => m._id);
 
     if (unreadIds.length > 0) {
-      socket.emit("mark-as-seen", { messageIds: unreadIds, senderId: selectedUser._id, userId: user._id });
-      setMessages((prev) => prev.map((m) => unreadIds.includes(m._id) ? { ...m, status: "seen" } : m));
+      socket.emit("mark-as-seen", { 
+        messageIds: unreadIds, 
+        senderId: selectedUser._id, 
+        userId: user._id 
+      });
+
+      // Update local state immediately for the receiver
+      setMessages((prev) =>
+        prev.map((m) => (unreadIds.includes(m._id) ? { ...m, status: "seen" } : m))
+      );
     }
-  }, [messages, selectedUser?._id, socket, user._id]);
+  }, [messages.length, selectedUser?._id, socket, user._id]); // Trigger on length change
 
   useEffect(() => {
     if (!socket || !user?._id || !selectedUser?._id) return;
@@ -423,8 +417,14 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       setMessages((prev) => prev.map((m) => (m._id === messageId ? { ...m, status } : m)));
     });
 
-    socket.on("messages-seen-update", ({ messageIds }) => {
-      setMessages((prev) => prev.map((m) => messageIds.includes(m._id) ? { ...m, status: "seen" } : m));
+    // --- SENDER LISTENER FOR BLUE TICKS ---
+    socket.on("messages-seen-update", ({ messageIds, receiverId }) => {
+      // Only update if the person who saw the message is our current chat partner
+      if (receiverId === selectedUser?._id) {
+        setMessages((prev) =>
+          prev.map((m) => (messageIds.includes(m._id) ? { ...m, status: "seen" } : m))
+        );
+      }
     });
 
     socket.on("user-status", ({ userId, status, lastSeen }) => {
@@ -593,12 +593,10 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
               style={{ 
                 minWidth: '80px', 
                 maxWidth: '75%',
-                // CUSTOM NAVY BLUE for Sender, White for Receiver
                 backgroundColor: msg.sender === user?._id ? "#075E54" : "#ffffff", 
                 border: msg.sender !== user?._id ? "1px solid #dee2e6" : "none"
               }}
             >
-              
               {msg.sender === user?._id && (
                 <div className="dropdown position-absolute" style={{ top: "2px", right: "5px" }}>
                   <button className="btn btn-link btn-sm text-white opacity-50 p-0 border-0 shadow-none" data-bs-toggle="dropdown">
@@ -624,8 +622,8 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
               
               <p className="mb-1 text-break pe-2">{msg.content}</p>
               
-              <div className="d-flex align-items-center justify-content-end opacity-75" style={{ fontSize: "9px" }}>
-                <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              <div className="d-flex align-items-center justify-content-end opacity-100" style={{ fontSize: "9px" }}>
+                <span className="opacity-75">{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 {msg.sender === user?._id && renderTicks(msg.status)}
               </div>
             </div>
