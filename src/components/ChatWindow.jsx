@@ -332,21 +332,22 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   const fileInputRef = useRef(null);
   const BASE_URL = "https://chat-b-7y5f.onrender.com";
 
-  // --- 1. Tick Logic (Increased Size & High Contrast) ---
+  // --- 1. Tick Logic (Optimized for High Contrast) ---
   const renderTicks = (status) => {
     const tickStyle = { 
-      fontSize: "16px", // 20px was quite large, 16px is balanced but clear
+      fontSize: "16px", 
       fontWeight: "bold", 
       marginLeft: "4px" 
     };
 
     if (status === "delivered") {
-      return <i className="bi bi-check-all" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.6)" }}></i>;
+      return <i className="bi bi-check-all" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.7)" }}></i>;
     }
     if (status === "seen") {
       return <i className="bi bi-check-all" style={{ ...tickStyle, color: "#00FFF0" }}></i>;
     }
-    return <i className="bi bi-check" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.6)" }}></i>;
+    // Default 'sent' (single tick)
+    return <i className="bi bi-check" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.7)" }}></i>;
   };
 
   const formatLastSeen = (ts) => {
@@ -363,17 +364,17 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     return `${getOrdinal(day)} ${month} ${time}`;
   };
 
+  // Sync user status when selectedUser changes
   useEffect(() => {
     if (selectedUser) {
       setUserStatus(selectedUser.isOnline ? "online" : selectedUser.lastSeen);
     }
   }, [selectedUser]);
 
-  // --- 2. Mark as Seen Trigger (CRITICAL FIX) ---
+  // --- 2. Mark as Seen Trigger (Triggers on new messages or user selection) ---
   useEffect(() => {
     if (!socket || !selectedUser?._id || messages.length === 0) return;
 
-    // Filter messages sent by the peer that are not seen yet
     const unreadIds = messages
       .filter((m) => m.sender === selectedUser._id && m.status !== "seen")
       .map((m) => m._id);
@@ -385,23 +386,15 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
         userId: user._id 
       });
 
-      // Update local state immediately for the receiver
       setMessages((prev) =>
         prev.map((m) => (unreadIds.includes(m._id) ? { ...m, status: "seen" } : m))
       );
     }
-  }, [messages.length, selectedUser?._id, socket, user._id]); // Trigger on length change
+  }, [messages.length, selectedUser?._id, socket, user._id]);
 
+  // --- 3. Socket Event Listeners ---
   useEffect(() => {
     if (!socket || !user?._id || !selectedUser?._id) return;
-
-    socket.off("receiveMessage");
-    socket.off("user-status");
-    socket.off("messageDeleted");
-    socket.off("typing");
-    socket.off("stopTyping");
-    socket.off("message-status-updated");
-    socket.off("messages-seen-update");
 
     socket.emit("joinRoom", { userId: user._id, receiverId: selectedUser._id });
 
@@ -413,13 +406,13 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       });
     });
 
+    // Handles the transition from single tick to double tick (delivered)
     socket.on("message-status-updated", ({ messageId, status }) => {
       setMessages((prev) => prev.map((m) => (m._id === messageId ? { ...m, status } : m)));
     });
 
-    // --- SENDER LISTENER FOR BLUE TICKS ---
+    // Handles the transition to blue ticks (seen)
     socket.on("messages-seen-update", ({ messageIds, receiverId }) => {
-      // Only update if the person who saw the message is our current chat partner
       if (receiverId === selectedUser?._id) {
         setMessages((prev) =>
           prev.map((m) => (messageIds.includes(m._id) ? { ...m, status: "seen" } : m))
@@ -451,6 +444,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     };
   }, [socket, selectedUser?._id, user?._id]);
 
+  // Fetch Chat History
   useEffect(() => {
     const fetchChatData = async () => {
       if (!selectedUser?._id || !user?.token) return;
@@ -464,6 +458,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     fetchChatData();
   }, [selectedUser?._id, user?.token]);
 
+  // Auto Scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -480,17 +475,21 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   const handleSend = async (e) => {
     if (e) e.preventDefault();
     if (!text.trim() || !selectedUser?._id) return;
+    
     const formData = new FormData();
     formData.append("receiverId", selectedUser._id);
     formData.append("content", text);
+    
     try {
       const res = await API.post("/messages", formData, {
         headers: { Authorization: `Bearer ${user.token}`, "Content-Type": "multipart/form-data" },
       });
+      
       setMessages((prev) => {
         if (prev.some(m => m._id === res.data._id)) return prev;
         return [...prev, res.data];
       });
+      
       socket.emit("sendMessage", res.data);
       setText("");
       setShowEmojiPicker(false);
@@ -611,7 +610,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
               {msg.fileUrl && (
                 <div className="my-1">
                    {msg.fileType === "image" ? (
-                     <img src={`${BASE_URL}${msg.fileUrl}`} style={{maxWidth: '100%', borderRadius: '8px'}} className="img-fluid" onClick={() => window.open(`${BASE_URL}${msg.fileUrl}`, '_blank')} />
+                     <img src={`${BASE_URL}${msg.fileUrl}`} style={{maxWidth: '100%', borderRadius: '8px'}} className="img-fluid" onClick={() => window.open(`${BASE_URL}${msg.fileUrl}`, '_blank')} alt="attachment" />
                    ) : (
                      <audio controls className="w-100" style={{ height: "30px" }}>
                        <source src={`${BASE_URL}${msg.fileUrl}`} type="audio/webm" />
@@ -622,7 +621,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
               
               <p className="mb-1 text-break pe-2">{msg.content}</p>
               
-              <div className="d-flex align-items-center justify-content-end opacity-100" style={{ fontSize: "9px" }}>
+              <div className="d-flex align-items-center justify-content-end" style={{ fontSize: "9px" }}>
                 <span className="opacity-75">{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 {msg.sender === user?._id && renderTicks(msg.status)}
               </div>
