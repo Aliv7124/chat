@@ -174,7 +174,7 @@ import API from "../api";
 import { AuthContext } from "../context/AuthContext";
 
 const Sidebar = ({ setSelectedUser, socket }) => {
-  const { user, setUser } = useContext(AuthContext); // Assume setUser is in context to update local state
+  const { user, setUser } = useContext(AuthContext);
   const [users, setUsers] = useState([]);
   const [activeUser, setActiveUser] = useState(null);
   
@@ -201,6 +201,8 @@ const Sidebar = ({ setSelectedUser, socket }) => {
       }
     };
     fetchUsers();
+    // Sync bio if user context changes
+    if (user?.bio) setBio(user.bio);
   }, [user]);
 
   // ✅ Real-time status updates
@@ -221,62 +223,69 @@ const Sidebar = ({ setSelectedUser, socket }) => {
     };
   }, [socket]);
 
-  // ✅ Handle Profile Update
+  // ✅ Handle Profile Update (Bio Only)
   const handleUpdateProfile = async () => {
     try {
       const res = await API.put("/users/update-profile", { bio }, {
         headers: { Authorization: `Bearer ${user.token}` }
       });
-      // Update local context
+      
+      // Update local context and storage
       const updatedUser = { ...user, bio: res.data.bio };
       setUser(updatedUser);
       localStorage.setItem("user", JSON.stringify(updatedUser));
+      
       setShowMyProfile(false);
       alert("Profile updated!");
     } catch (err) {
-      console.error(err);
+      console.error("Update failed:", err.response?.data || err.message);
+      alert("Failed to update bio.");
     }
   };
 
-  // ✅ Handle Avatar Upload
+  // ✅ Handle Avatar Upload (Two-Step Process)
   const handleAvatarChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     setUploading(true);
+
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      // First, upload image to your existing upload endpoint
+      // 1. Upload image to message/upload endpoint
       const uploadRes = await API.post("/messages/upload", formData, {
         headers: { Authorization: `Bearer ${user.token}`, "Content-Type": "multipart/form-data" }
       });
       
       const newAvatarUrl = uploadRes.data.fileUrl;
 
-      // Second, update user record
+      // 2. Update user profile with new URL string
       const res = await API.put("/users/update-profile", { avatar: newAvatarUrl }, {
         headers: { Authorization: `Bearer ${user.token}` }
       });
 
+      // 3. Update Global State
       const updatedUser = { ...user, avatar: res.data.avatar };
       setUser(updatedUser);
       localStorage.setItem("user", JSON.stringify(updatedUser));
+      
       setUploading(false);
     } catch (err) {
-      console.error(err);
+      console.error("Avatar upload error:", err);
       setUploading(false);
+      alert("Failed to upload image.");
     }
   };
 
   if (!user) return <div className="text-center text-muted p-4">Please log in.</div>;
 
   return (
-    <div className="bg-white border-end d-flex flex-column h-100 shadow-sm" style={{ borderTopLeftRadius: "1rem" }}>
+    <div className="bg-white border-end d-flex flex-column h-100 shadow-sm overflow-hidden" style={{ borderTopLeftRadius: "1rem" }}>
       
-      {/* HEADER: Click to Edit Profile */}
+      {/* HEADER: Profile Toggle */}
       <div 
-        className="p-3 text-white d-flex align-items-center justify-content-between cursor-pointer"
+        className="p-3 text-white d-flex align-items-center justify-content-between"
         style={{
           background: "linear-gradient(135deg, #6e8efb, #a777e3)",
           borderTopLeftRadius: "1rem",
@@ -291,30 +300,33 @@ const Sidebar = ({ setSelectedUser, socket }) => {
                 width="35" height="35" style={{objectFit: 'cover'}}
                 onError={(e) => { e.target.src = "https://via.placeholder.com/40"; }}
             />
-            <span className="fw-bold">My Chats</span>
+            <span className="fw-bold">{showMyProfile ? "My Profile" : "My Chats"}</span>
         </div>
-        <i className={`bi ${showMyProfile ? "bi-chat-left-text" : "bi-person-circle"} fs-5`}></i>
+        <i className={`bi ${showMyProfile ? "bi-chat-left-text" : "bi-gear-fill"} fs-5`}></i>
       </div>
 
       <div className="flex-grow-1 overflow-auto">
         {showMyProfile ? (
-          /* MY PROFILE EDIT VIEW */
+          /* --- EDIT PROFILE VIEW --- */
           <div className="p-4 animate__animated animate__fadeIn">
             <div className="text-center mb-4 position-relative">
-              <img 
-                src={user.avatar ? `${BASE_URL}${user.avatar}` : "https://via.placeholder.com/100"} 
-                className="rounded-circle shadow-sm border" 
-                width="100" height="100" style={{objectFit: 'cover'}}
-              />
-              <button 
-                className="btn btn-sm btn-primary position-absolute rounded-circle" 
-                style={{bottom: 0, right: '30%'}}
-                onClick={() => fileInputRef.current.click()}
-                disabled={uploading}
-              >
-                <i className="bi bi-camera"></i>
-              </button>
-              <input type="file" ref={fileInputRef} className="d-none" onChange={handleAvatarChange} />
+              <div className="d-inline-block position-relative">
+                <img 
+                  src={user.avatar ? `${BASE_URL}${user.avatar}` : "https://via.placeholder.com/100"} 
+                  className="rounded-circle shadow-sm border" 
+                  width="100" height="100" style={{objectFit: 'cover'}}
+                  onError={(e) => { e.target.src = "https://via.placeholder.com/100"; }}
+                />
+                <button 
+                  className="btn btn-sm btn-primary position-absolute rounded-circle shadow" 
+                  style={{bottom: "5px", right: "5px"}}
+                  onClick={(e) => { e.stopPropagation(); fileInputRef.current.click(); }}
+                  disabled={uploading}
+                >
+                  {uploading ? <span className="spinner-border spinner-border-sm"></span> : <i className="bi bi-camera"></i>}
+                </button>
+              </div>
+              <input type="file" ref={fileInputRef} className="d-none" onChange={handleAvatarChange} accept="image/*" />
             </div>
 
             <div className="mb-3">
@@ -333,36 +345,43 @@ const Sidebar = ({ setSelectedUser, socket }) => {
               ></textarea>
             </div>
 
-            <button className="btn btn-primary w-100 rounded-pill shadow-sm" onClick={handleUpdateProfile}>
+            <button className="btn btn-primary w-100 rounded-pill shadow-sm py-2 fw-bold" onClick={handleUpdateProfile}>
               Save Changes
             </button>
-            <button className="btn btn-link w-100 text-muted mt-2" onClick={() => setShowMyProfile(false)}>
-              Back to Chats
+            <button className="btn btn-link w-100 text-muted mt-2 text-decoration-none" onClick={() => setShowMyProfile(false)}>
+              Cancel
             </button>
           </div>
         ) : (
-          /* CHAT LIST VIEW */
+          /* --- CHAT LIST VIEW --- */
           <ul className="list-group list-group-flush">
-            {users.map((u) => (
-              <li
-                key={u._id}
-                className={`list-group-item list-group-item-action d-flex align-items-center border-0 py-3 ${activeUser === u._id ? "bg-light" : ""}`}
-                style={{ cursor: "pointer", borderLeft: activeUser === u._id ? "4px solid #6e8efb" : "4px solid transparent" }}
-                onClick={() => { setActiveUser(u._id); setSelectedUser(u); }}
-              >
-                <div className="position-relative">
-                    <img 
-                        src={u.avatar ? `${BASE_URL}${u.avatar}` : "https://via.placeholder.com/45"} 
-                        className="rounded-circle me-3" width="45" height="45" style={{objectFit: 'cover'}}
-                    />
-                    {u.isOnline && <span className="position-absolute bottom-0 end-0 p-1 bg-success border border-2 border-white rounded-circle" style={{right: '15px'}}></span>}
-                </div>
-                <div className="flex-grow-1">
-                  <div className="fw-bold text-dark">{u.name}</div>
-                  <small className="text-muted">{u.isOnline ? "Online" : "Offline"}</small>
-                </div>
-              </li>
-            ))}
+            {users.length > 0 ? (
+              users.map((u) => (
+                <li
+                  key={u._id}
+                  className={`list-group-item list-group-item-action d-flex align-items-center border-0 py-3 ${activeUser === u._id ? "bg-light" : ""}`}
+                  style={{ cursor: "pointer", borderLeft: activeUser === u._id ? "4px solid #6e8efb" : "4px solid transparent" }}
+                  onClick={() => { setActiveUser(u._id); setSelectedUser(u); }}
+                >
+                  <div className="position-relative">
+                      <img 
+                          src={u.avatar ? `${BASE_URL}${u.avatar}` : "https://via.placeholder.com/45"} 
+                          className="rounded-circle me-3" width="45" height="45" style={{objectFit: 'cover'}}
+                          onError={(e) => { e.target.src = "https://via.placeholder.com/45"; }}
+                      />
+                      {u.isOnline && <span className="position-absolute bottom-0 end-0 p-1 bg-success border border-2 border-white rounded-circle" style={{right: '12px'}}></span>}
+                  </div>
+                  <div className="flex-grow-1 overflow-hidden">
+                    <div className="fw-bold text-dark text-truncate">{u.name}</div>
+                    <small className={u.isOnline ? "text-success" : "text-muted"}>
+                      {u.isOnline ? "Online" : "Offline"}
+                    </small>
+                  </div>
+                </li>
+              ))
+            ) : (
+              <div className="text-center p-5 text-muted small">No users found</div>
+            )}
           </ul>
         )}
       </div>

@@ -476,15 +476,6 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     }
   };
 
-  const deleteMessage = async (id) => {
-    if (!window.confirm("Delete this message?")) return;
-    try {
-      await API.delete(`/messages/${id}`, { headers: { Authorization: `Bearer ${user.token}` } });
-      setMessages((prev) => prev.filter((m) => m._id !== id));
-      socket.emit("deleteMessage", { messageId: id, receiverId: selectedUser?._id });
-    } catch (err) { console.error(err); }
-  };
-
   const handleTyping = (e) => {
     setText(e.target.value);
     if (!socket || !selectedUser?._id) return;
@@ -495,6 +486,24 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   };
 
   // --- 3. Effects ---
+  
+  // ✅ NEW: Fetch full user details (Bio/Avatar) when selectedUser changes
+  useEffect(() => {
+    const fetchFullDetails = async () => {
+      try {
+        if (!selectedUser?._id) return;
+        const res = await API.get(`/users/${selectedUser._id}`, {
+          headers: { Authorization: `Bearer ${user.token}` },
+        });
+        // Merge the new data (bio, email) into the existing selectedUser state
+        setSelectedUser(prev => ({ ...prev, ...res.data }));
+      } catch (err) {
+        console.error("Could not fetch user bio:", err);
+      }
+    };
+    fetchFullDetails();
+  }, [selectedUser?._id]);
+
   useEffect(() => {
     if (!selectedUser?._id || !user?.token) return;
     const fetchChatData = async () => {
@@ -507,7 +516,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     };
     fetchChatData();
     setUserStatus(selectedUser.isOnline ? "online" : selectedUser.lastSeen);
-  }, [selectedUser, user.token]);
+  }, [selectedUser?._id, user.token]);
 
   useEffect(() => {
     if (!socket) return;
@@ -528,10 +537,10 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   return (
     <div className="d-flex flex-column h-100 position-relative bg-white shadow-sm overflow-hidden">
       
-      {/* --- PROFILE MODAL --- */}
+      {/* --- PROFILE MODAL (FIXED BIO & AVATAR) --- */}
       {showProfileModal && (
         <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style={{ zIndex: 3000, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} onClick={() => setShowProfileModal(false)}>
-          <div className={`p-4 rounded-4 shadow-lg text-center ${darkMode ? "bg-dark text-white border border-secondary" : "bg-white"}`} style={{ width: "320px" }} onClick={e => e.stopPropagation()}>
+          <div className={`p-4 rounded-4 shadow-lg text-center animate__animated animate__zoomIn ${darkMode ? "bg-dark text-white border border-secondary" : "bg-white"}`} style={{ width: "320px" }} onClick={e => e.stopPropagation()}>
             <img 
                 src={selectedUser.avatar ? `${BASE_URL}${selectedUser.avatar}` : "https://via.placeholder.com/150"} 
                 className="rounded-circle border border-4 border-primary mb-3 shadow" 
@@ -540,10 +549,14 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
             />
             <h4 className="fw-bold mb-1">{selectedUser.name}</h4>
             <p className="text-muted small mb-3">{selectedUser.email}</p>
+            
             <div className={`p-3 rounded-3 text-start mb-4 ${darkMode ? "bg-secondary bg-opacity-25" : "bg-light text-dark"}`}>
               <small className="fw-bold text-primary text-uppercase" style={{fontSize: '10px'}}>About / Bio</small>
-              <div className="small mt-1">{selectedUser.bio || "Available"}</div>
+              <div className="small mt-1" style={{ whiteSpace: "pre-wrap" }}>
+                {selectedUser.bio || "Available"}
+              </div>
             </div>
+            
             <button className="btn btn-primary w-100 rounded-pill fw-bold" onClick={() => setShowProfileModal(false)}>Close</button>
           </div>
         </div>
@@ -572,7 +585,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
         </div>
       </div>
 
-      {/* --- MESSAGES AREA --- */}
+      {/* --- MESSAGES AREA (FIXED COLORS) --- */}
       <div className="flex-grow-1 p-3 overflow-auto" style={{ backgroundColor: darkMode ? "#121212" : "#f0f2f5" }}>
         {messages.map((msg) => (
           <div key={msg._id} className={`d-flex mb-2 ${msg.sender === user?._id ? "justify-content-end" : "justify-content-start"}`}>
@@ -580,6 +593,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
                 className={`position-relative p-2 px-3 rounded-4 shadow-sm ${msg.sender === user?._id ? "text-white" : "bg-white text-dark border"}`} 
                 style={{ 
                     maxWidth: '75%',
+                    // ✅ FIXED: Using WhatsApp Dark Green for Sender
                     backgroundColor: msg.sender === user?._id ? "#075E54" : "#ffffff" 
                 }}
             >
