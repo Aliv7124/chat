@@ -684,6 +684,8 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   const audioChunksRef = useRef([]);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const typingTimeoutRef = useRef(null); // Fixed typing logic
+  
   const BASE_URL = "https://chat-b-7y5f.onrender.com";
 
   // --- 1. UI HELPERS ---
@@ -700,10 +702,35 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     return `${date.getDate()} ${date.toLocaleString('en-US', { month: 'short' })} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   };
 
-  // --- 2. ACTIONS ---
+  // --- 2. CORE ACTIONS ---
+  
+  // Mark messages as seen when reading
+  const markAsSeen = () => {
+    if (!socket || !selectedUser?._id || messages.length === 0) return;
+    
+    const unreadIds = messages
+      .filter(m => m.sender === selectedUser._id && m.status !== "seen")
+      .map(m => m._id);
+
+    if (unreadIds.length > 0) {
+      socket.emit("markAsSeen", { 
+        messageIds: unreadIds, 
+        senderId: selectedUser._id, 
+        receiverId: user._id 
+      });
+      // Local update for instant feedback
+      setMessages(prev => prev.map(m => unreadIds.includes(m._id) ? { ...m, status: "seen" } : m));
+    }
+  };
+
   const handleSend = async (e) => {
     if (e) e.preventDefault();
     if (!text.trim() || !selectedUser?._id) return;
+
+    // Stop typing indicator immediately on send
+    const roomId = [user._id, selectedUser._id].sort().join("_");
+    socket.emit("stopTyping", { roomId, senderId: user._id });
+
     const formData = new FormData();
     formData.append("receiverId", selectedUser._id);
     formData.append("content", text);
@@ -716,6 +743,19 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       setText("");
       setShowEmojiPicker(false);
     } catch (err) { console.error(err); }
+  };
+
+  const handleTyping = (e) => {
+    setText(e.target.value);
+    if (!socket || !selectedUser?._id) return;
+
+    const roomId = [user._id, selectedUser._id].sort().join("_");
+    socket.emit("typing", { roomId, senderId: user._id });
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit("stopTyping", { roomId, senderId: user._id });
+    }, 2000);
   };
 
   const handleDeleteMessage = async (messageId) => {
@@ -774,36 +814,42 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     }
   };
 
-  const handleTyping = (e) => {
-    setText(e.target.value);
-    if (!socket || !selectedUser?._id) return;
-    const roomId = [user._id, selectedUser._id].sort().join("_");
-    socket.emit("typing", { roomId, senderId: user._id });
-    clearTimeout(window.t_timeout);
-    window.t_timeout = setTimeout(() => socket.emit("stopTyping", { roomId, senderId: user._id }), 2000);
-  };
+  // --- 3. SOCKET & LIFECYCLE ---
 
-  // --- 3. SOCKET & EFFECTS ---
+  // Handle Focus for Blue Ticks
   useEffect(() => {
-    if (!socket || !selectedUser?._id || messages.length === 0) return;
-    const unread = messages.filter(m => m.sender === selectedUser._id && m.status !== "seen").map(m => m._id);
-    if (unread.length > 0) {
-      socket.emit("markAsSeen", { messageIds: unread, senderId: selectedUser._id, receiverId: user._id });
-    }
-  }, [messages, selectedUser?._id, socket, user._id]);
+    markAsSeen();
+    window.addEventListener("focus", markAsSeen);
+    return () => window.removeEventListener("focus", markAsSeen);
+  }, [messages.length, selectedUser?._id]);
 
   useEffect(() => {
     if (!socket || !selectedUser?._id) return;
-    socket.on("receiveMessage", (msg) => { if (msg.sender === selectedUser._id) setMessages(p => [...p, msg]); });
+
+    // Listeners
+    socket.on("receiveMessage", (msg) => {
+      if (msg.sender === selectedUser._id) {
+        setMessages(p => [...p, msg]);
+        if (document.hasFocus()) markAsSeen();
+      }
+    });
+
     socket.on("typing", (data) => { if (data.senderId === selectedUser._id) setIsTyping(true); });
     socket.on("stopTyping", (data) => { if (data.senderId === selectedUser._id) setIsTyping(false); });
+    
     socket.on("messageStatusUpdate", ({ messageIds, status }) => {
       setMessages(p => p.map(m => messageIds.includes(m._id) ? { ...m, status } : m));
     });
+
+    socket.on("userStatusUpdate", (data) => {
+      if (data.userId === selectedUser._id) setUserStatus(data.status);
+    });
+
     socket.on("messageDeleted", (id) => setMessages(p => p.filter(m => m._id !== id)));
+
     return () => {
       socket.off("receiveMessage"); socket.off("typing"); socket.off("stopTyping");
-      socket.off("messageStatusUpdate"); socket.off("messageDeleted");
+      socket.off("messageStatusUpdate"); socket.off("messageDeleted"); socket.off("userStatusUpdate");
     };
   }, [socket, selectedUser?._id]);
 
@@ -830,7 +876,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       {showProfileModal && (
         <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style={{ zIndex: 3000, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} onClick={() => setShowProfileModal(false)}>
           <div className={`p-4 rounded-4 shadow-lg text-center ${darkMode ? "bg-dark text-white border border-secondary" : "bg-white"}`} style={{ width: "320px" }} onClick={e => e.stopPropagation()}>
-            <img src={selectedUser.avatar ? `${BASE_URL}${selectedUser.avatar}` : "https://via.placeholder.com/150"} className="rounded-circle mb-3 shadow" style={{ width: "100px", height: "100px", objectFit: "cover" }} />
+            <img src={selectedUser.avatar ? `${BASE_URL}${selectedUser.avatar}` : "https://via.placeholder.com/150"} className="rounded-circle mb-3 shadow" style={{ width: "100px", height: "100px", objectFit: "cover" }} alt="avatar" />
             <h4 className="fw-bold mb-1">{selectedUser.name}</h4>
             <div className={`p-3 rounded-3 text-start mt-3 ${darkMode ? "bg-secondary bg-opacity-25" : "bg-light"}`}>
               <small className="fw-bold text-primary text-uppercase" style={{fontSize: '10px'}}>About</small>
@@ -845,7 +891,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       <div className={`p-3 border-bottom d-flex align-items-center justify-content-between ${darkMode ? "bg-dark text-white border-secondary" : "bg-light"}`}>
         <div className="d-flex align-items-center" onClick={() => setShowProfileModal(true)} style={{ cursor: "pointer" }}>
           <div className="bg-primary rounded-circle me-3 overflow-hidden shadow-sm" style={{ width: "45px", height: "45px" }}>
-            {selectedUser?.avatar ? <img src={`${BASE_URL}${selectedUser.avatar}`} className="w-100 h-100 object-fit-cover" /> : <div className="h-100 d-flex align-items-center justify-content-center text-white fw-bold">{selectedUser?.name?.charAt(0).toUpperCase()}</div>}
+            {selectedUser?.avatar ? <img src={`${BASE_URL}${selectedUser.avatar}`} className="w-100 h-100 object-fit-cover" alt="user" /> : <div className="h-100 d-flex align-items-center justify-content-center text-white fw-bold">{selectedUser?.name?.charAt(0).toUpperCase()}</div>}
           </div>
           <div>
             <div className="fw-bold">{selectedUser?.name}</div>
@@ -854,7 +900,6 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
             </small>
           </div>
         </div>
-        {/* RESTORED CALL BUTTONS */}
         <div className="d-flex gap-2">
             <button className="btn btn-outline-primary btn-sm rounded-circle" onClick={() => startCall("audio")}><i className="bi bi-telephone"></i></button>
             <button className="btn btn-outline-primary btn-sm rounded-circle" onClick={() => startCall("video")}><i className="bi bi-camera-video"></i></button>
@@ -876,7 +921,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
 
               {msg.fileUrl && (
                 <div className="my-1">
-                  {msg.fileType === "image" ? <img src={`${BASE_URL}${msg.fileUrl}`} className="img-fluid rounded" onClick={() => window.open(`${BASE_URL}${msg.fileUrl}`, '_blank')} /> : <audio controls src={`${BASE_URL}${msg.fileUrl}`} className="w-100" style={{height: '30px'}} />}
+                  {msg.fileType === "image" ? <img src={`${BASE_URL}${msg.fileUrl}`} className="img-fluid rounded" alt="file" onClick={() => window.open(`${BASE_URL}${msg.fileUrl}`, '_blank')} /> : <audio controls src={`${BASE_URL}${msg.fileUrl}`} className="w-100" style={{height: '30px'}} />}
                 </div>
               )}
               
@@ -891,7 +936,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
         <div ref={messagesEndRef} />
       </div>
 
-      {/* RESTORED INPUT AREA */}
+      {/* INPUT AREA */}
       <div className={`p-3 border-top ${darkMode ? "bg-dark border-secondary" : "bg-white"}`}>
         <form onSubmit={handleSend} className="d-flex align-items-center gap-2">
           <button type="button" className={`btn rounded-circle ${recording ? "btn-danger shadow animate__animated animate__pulse animate__infinite" : "btn-light border"}`} onClick={toggleRecording}>
