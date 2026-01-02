@@ -332,7 +332,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   const fileInputRef = useRef(null);
   const BASE_URL = "https://chat-b-7y5f.onrender.com";
 
-  // --- 1. Tick Logic (Optimized for High Contrast) ---
+  // --- 1. Tick Logic (High Contrast) ---
   const renderTicks = (status) => {
     const tickStyle = { 
       fontSize: "16px", 
@@ -346,7 +346,6 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     if (status === "seen") {
       return <i className="bi bi-check-all" style={{ ...tickStyle, color: "#00FFF0" }}></i>;
     }
-    // Default 'sent' (single tick)
     return <i className="bi bi-check" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.7)" }}></i>;
   };
 
@@ -364,14 +363,13 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     return `${getOrdinal(day)} ${month} ${time}`;
   };
 
-  // Sync user status when selectedUser changes
   useEffect(() => {
     if (selectedUser) {
       setUserStatus(selectedUser.isOnline ? "online" : selectedUser.lastSeen);
     }
   }, [selectedUser]);
 
-  // --- 2. Mark as Seen Trigger (Triggers on new messages or user selection) ---
+  // --- 2. Mark as Seen Trigger (Critical for Blue Ticks) ---
   useEffect(() => {
     if (!socket || !selectedUser?._id || messages.length === 0) return;
 
@@ -406,12 +404,19 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       });
     });
 
-    // Handles the transition from single tick to double tick (delivered)
+    // SINGLE Delivery update (Real-time)
     socket.on("message-status-updated", ({ messageId, status }) => {
       setMessages((prev) => prev.map((m) => (m._id === messageId ? { ...m, status } : m)));
     });
 
-    // Handles the transition to blue ticks (seen)
+    // BULK Delivery update (When peer logs in)
+    socket.on("messages-delivered-bulk", ({ messageIds, status }) => {
+      setMessages((prev) =>
+        prev.map((m) => (messageIds.includes(m._id) ? { ...m, status } : m))
+      );
+    });
+
+    // Seen Update (Blue Ticks)
     socket.on("messages-seen-update", ({ messageIds, receiverId }) => {
       if (receiverId === selectedUser?._id) {
         setMessages((prev) =>
@@ -426,6 +431,12 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       }
     });
 
+    socket.on("updateOnlineUsers", (onlineIds) => {
+      if (onlineIds.includes(selectedUser._id)) {
+        setUserStatus("online");
+      }
+    });
+
     socket.on("messageDeleted", ({ messageId }) => {
       setMessages((prev) => prev.filter((m) => m._id !== messageId));
     });
@@ -436,15 +447,17 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     return () => {
       socket.off("receiveMessage");
       socket.off("user-status");
+      socket.off("updateOnlineUsers");
       socket.off("messageDeleted");
       socket.off("typing");
       socket.off("stopTyping");
       socket.off("message-status-updated");
+      socket.off("messages-delivered-bulk");
       socket.off("messages-seen-update");
     };
   }, [socket, selectedUser?._id, user?._id]);
 
-  // Fetch Chat History
+  // --- 4. Fetch History ---
   useEffect(() => {
     const fetchChatData = async () => {
       if (!selectedUser?._id || !user?.token) return;
@@ -458,7 +471,6 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     fetchChatData();
   }, [selectedUser?._id, user?.token]);
 
-  // Auto Scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
