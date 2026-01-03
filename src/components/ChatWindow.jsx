@@ -400,28 +400,47 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   
   const BASE_URL = "https://chat-b-7y5f.onrender.com";
 
-  // --- 1. UTILITIES & RENDERING ---
-  const getRoomId = () => {
-    if (!user?._id || !selectedUser?._id) return null;
-    return [user._id, selectedUser._id].sort().join("_");
-  };
-
+   // --- 1. Tick Logic (High Contrast) ---
   const renderTicks = (status) => {
-    const tickStyle = { fontSize: "16px", fontWeight: "bold", marginLeft: "4px" };
-    if (status === "seen") return <i className="bi bi-check-all" style={{ ...tickStyle, color: "#00FFF0" }}></i>;
-    if (status === "delivered") return <i className="bi bi-check-all" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.7)" }}></i>;
+    const tickStyle = { 
+      fontSize: "16px", 
+      fontWeight: "bold", 
+      marginLeft: "4px" 
+    };
+
+    if (status === "delivered") {
+      return <i className="bi bi-check-all" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.7)" }}></i>;
+    }
+    if (status === "seen") {
+      return <i className="bi bi-check-all" style={{ ...tickStyle, color: "#00FFF0" }}></i>;
+    }
     return <i className="bi bi-check" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.7)" }}></i>;
   };
 
   const formatLastSeen = (ts) => {
     if (!ts || ts === "online") return ts === "online" ? "Online" : "Offline";
     const date = new Date(ts);
-    return `${date.getDate()} ${date.toLocaleString('en-US', { month: 'short' })} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    const day = date.getDate();
+    const getOrdinal = (n) => {
+      const s = ["th", "st", "nd", "rd"];
+      const v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    };
+    const month = date.toLocaleString('en-US', { month: 'long' });
+    const time = date.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
+    return `${getOrdinal(day)} ${month} ${time}`;
   };
 
-  // --- 2. CORE ACTIONS ---
-  const markAsSeen = () => {
+  useEffect(() => {
+    if (selectedUser) {
+      setUserStatus(selectedUser.isOnline ? "online" : selectedUser.lastSeen);
+    }
+  }, [selectedUser]);
+
+  // --- 2. Mark as Seen Trigger (Critical for Blue Ticks) ---
+  useEffect(() => {
     if (!socket || !selectedUser?._id || messages.length === 0) return;
+
     const unreadIds = messages
       .filter((m) => m.sender === selectedUser._id && m.status !== "seen")
       .map((m) => m._id);
@@ -432,11 +451,80 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
         senderId: selectedUser._id, 
         userId: user._id 
       });
+
       setMessages((prev) =>
         prev.map((m) => (unreadIds.includes(m._id) ? { ...m, status: "seen" } : m))
       );
     }
-  };
+  }, [messages.length, selectedUser?._id, socket, user._id]);
+
+  // --- 3. Socket Event Listeners ---
+  useEffect(() => {
+    if (!socket || !user?._id || !selectedUser?._id) return;
+
+    socket.emit("joinRoom", { userId: user._id, receiverId: selectedUser._id });
+
+    socket.on("receiveMessage", (message) => {
+      setMessages((prev) => {
+        const isDuplicate = prev.some((m) => m._id === message._id);
+        if (isDuplicate) return prev;
+        return [...prev, message];
+      });
+    });
+
+    // SINGLE Delivery update (Real-time)
+    socket.on("message-status-updated", ({ messageId, status }) => {
+      setMessages((prev) => prev.map((m) => (m._id === messageId ? { ...m, status } : m)));
+    });
+
+    // BULK Delivery update (When peer logs in)
+    socket.on("messages-delivered-bulk", ({ messageIds, status }) => {
+      setMessages((prev) =>
+        prev.map((m) => (messageIds.includes(m._id) ? { ...m, status } : m))
+      );
+    });
+
+    // Seen Update (Blue Ticks)
+    socket.on("messages-seen-update", ({ messageIds, receiverId }) => {
+      if (receiverId === selectedUser?._id) {
+        setMessages((prev) =>
+          prev.map((m) => (messageIds.includes(m._id) ? { ...m, status: "seen" } : m))
+        );
+      }
+    });
+
+    socket.on("user-status", ({ userId, status, lastSeen }) => {
+      if (userId === selectedUser._id) {
+        setUserStatus(status === "online" ? "online" : lastSeen);
+      }
+    });
+
+    socket.on("updateOnlineUsers", (onlineIds) => {
+      if (onlineIds.includes(selectedUser._id)) {
+        setUserStatus("online");
+      }
+    });
+
+    socket.on("messageDeleted", ({ messageId }) => {
+      setMessages((prev) => prev.filter((m) => m._id !== messageId));
+    });
+
+    socket.on("typing", () => setIsTyping(true));
+    socket.on("stopTyping", () => setIsTyping(false));
+
+    return () => {
+      socket.off("receiveMessage");
+      socket.off("user-status");
+      socket.off("updateOnlineUsers");
+      socket.off("messageDeleted");
+      socket.off("typing");
+      socket.off("stopTyping");
+      socket.off("message-status-updated");
+      socket.off("messages-delivered-bulk");
+      socket.off("messages-seen-update");
+    };
+  }, [socket, selectedUser?._id, user?._id]);
+
 
   const handleTyping = (e) => {
     setText(e.target.value);
@@ -520,17 +608,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     }
   };
 
-  // --- 3. SOCKETS & EFFECTS ---
-  useEffect(() => {
-    if (!socket || !selectedUser?._id) return;
-    socket.emit("joinRoom", { userId: user._id, receiverId: selectedUser._id });
-    
-    socket.on("receiveMessage", (message) => {
-      if (message.sender === selectedUser._id) {
-        setMessages((p) => [...p, message]);
-        markAsSeen();
-      }
-    });
+ 
 
     socket.on("messageDeleted", ({ messageId }) => {
       setMessages((p) => p.filter((m) => m._id !== messageId));
@@ -539,18 +617,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     socket.on("typing", () => setIsTyping(true));
     socket.on("stopTyping", () => setIsTyping(false));
 
-    socket.on("messages-seen-update", ({ messageIds }) => {
-      setMessages(p => p.map(m => messageIds.includes(m._id) ? { ...m, status: "seen" } : m));
-    });
-
-    return () => {
-      socket.off("receiveMessage");
-      socket.off("messageDeleted");
-      socket.off("typing");
-      socket.off("stopTyping");
-      socket.off("messages-seen-update");
-    };
-  }, [socket, selectedUser?._id, user?._id]);
+  
 
   useEffect(() => {
     const fetchChatData = async () => {
