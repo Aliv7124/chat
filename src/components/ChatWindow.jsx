@@ -400,7 +400,12 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   
   const BASE_URL = "https://chat-b-7y5f.onrender.com";
 
-  // --- 1. UI HELPERS ---
+  // --- 1. UTILITIES & RENDERING ---
+  const getRoomId = () => {
+    if (!user?._id || !selectedUser?._id) return null;
+    return [user._id, selectedUser._id].sort().join("_");
+  };
+
   const renderTicks = (status) => {
     const tickStyle = { fontSize: "16px", fontWeight: "bold", marginLeft: "4px" };
     if (status === "seen") return <i className="bi bi-check-all" style={{ ...tickStyle, color: "#00FFF0" }}></i>;
@@ -414,23 +419,38 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     return `${date.getDate()} ${date.toLocaleString('en-US', { month: 'short' })} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   };
 
-  // --- 2. MESSAGE ACTIONS ---
-  const deleteMessage = async (id) => {
-    if (!window.confirm("Delete this message?")) return;
-    try {
-      await API.delete(`/messages/${id}`, { headers: { Authorization: `Bearer ${user.token}` } });
-      setMessages((prev) => prev.filter((m) => m._id !== id));
-      socket.emit("deleteMessage", { messageId: id, receiverId: selectedUser?._id });
-    } catch (err) { console.error(err); }
+  // --- 2. CORE ACTIONS ---
+  const markAsSeen = () => {
+    if (!socket || !selectedUser?._id || messages.length === 0) return;
+    const unreadIds = messages
+      .filter((m) => m.sender === selectedUser._id && m.status !== "seen")
+      .map((m) => m._id);
+
+    if (unreadIds.length > 0) {
+      socket.emit("mark-as-seen", { 
+        messageIds: unreadIds, 
+        senderId: selectedUser._id, 
+        userId: user._id 
+      });
+      setMessages((prev) =>
+        prev.map((m) => (unreadIds.includes(m._id) ? { ...m, status: "seen" } : m))
+      );
+    }
+  };
+
+  const handleTyping = (e) => {
+    setText(e.target.value);
+    const roomId = getRoomId();
+    if (!socket || !roomId) return;
+    socket.emit("typing", roomId);
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => socket.emit("stopTyping", roomId), 2000);
   };
 
   const handleSend = async (e) => {
     if (e) e.preventDefault();
     if (!text.trim() || !selectedUser?._id) return;
-
-    const roomId = [user._id, selectedUser._id].sort().join("_");
-    socket.emit("stopTyping", roomId);
-
+    socket.emit("stopTyping", getRoomId());
     try {
       const formData = new FormData();
       formData.append("receiverId", selectedUser._id);
@@ -442,6 +462,15 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       socket.emit("sendMessage", res.data);
       setText("");
       setShowEmojiPicker(false);
+    } catch (err) { console.error(err); }
+  };
+
+  const deleteMessage = async (id) => {
+    if (!window.confirm("Delete this message?")) return;
+    try {
+      await API.delete(`/messages/${id}`, { headers: { Authorization: `Bearer ${user.token}` } });
+      setMessages((prev) => prev.filter((m) => m._id !== id));
+      socket.emit("deleteMessage", { messageId: id, receiverId: selectedUser?._id });
     } catch (err) { console.error(err); }
   };
 
@@ -491,42 +520,57 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     }
   };
 
-  // --- 3. SOCKET & EFFECTS ---
+  // --- 3. SOCKETS & EFFECTS ---
   useEffect(() => {
     if (!socket || !selectedUser?._id) return;
+    socket.emit("joinRoom", { userId: user._id, receiverId: selectedUser._id });
     
     socket.on("receiveMessage", (message) => {
-      if (message.sender === selectedUser._id) setMessages((p) => [...p, message]);
+      if (message.sender === selectedUser._id) {
+        setMessages((p) => [...p, message]);
+        markAsSeen();
+      }
     });
 
     socket.on("messageDeleted", ({ messageId }) => {
-      setMessages((prev) => prev.filter((m) => m._id !== messageId));
+      setMessages((p) => p.filter((m) => m._id !== messageId));
     });
 
     socket.on("typing", () => setIsTyping(true));
     socket.on("stopTyping", () => setIsTyping(false));
+
+    socket.on("messages-seen-update", ({ messageIds }) => {
+      setMessages(p => p.map(m => messageIds.includes(m._id) ? { ...m, status: "seen" } : m));
+    });
 
     return () => {
       socket.off("receiveMessage");
       socket.off("messageDeleted");
       socket.off("typing");
       socket.off("stopTyping");
+      socket.off("messages-seen-update");
     };
-  }, [socket, selectedUser?._id]);
+  }, [socket, selectedUser?._id, user?._id]);
 
   useEffect(() => {
     const fetchChatData = async () => {
       if (!selectedUser?._id) return;
-      const res = await API.get(`/messages/${selectedUser._id}`, { headers: { Authorization: `Bearer ${user.token}` } });
-      setMessages(res.data);
-      setUserStatus(selectedUser.isOnline ? "online" : selectedUser.lastSeen);
+      try {
+        const res = await API.get(`/messages/${selectedUser._id}`, { headers: { Authorization: `Bearer ${user.token}` } });
+        setMessages(res.data);
+        setUserStatus(selectedUser.isOnline ? "online" : selectedUser.lastSeen);
+        markAsSeen();
+      } catch (err) { console.error(err); }
     };
     fetchChatData();
   }, [selectedUser?._id]);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-  if (!selectedUser) return <div className="h-100 d-flex align-items-center justify-content-center">Select a user</div>;
+  // --- 4. RENDER SAFETY ---
+  if (!selectedUser || !selectedUser._id) {
+    return <div className="h-100 d-flex align-items-center justify-content-center bg-light text-muted">Select a user to chat</div>;
+  }
 
   return (
     <div className="d-flex flex-column h-100 position-relative bg-white overflow-hidden">
@@ -535,11 +579,11 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       {showProfileModal && (
         <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style={{ zIndex: 3000, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(5px)" }} onClick={() => setShowProfileModal(false)}>
           <div className={`p-4 rounded-4 shadow-lg text-center ${darkMode ? "bg-dark text-white border border-secondary" : "bg-white"}`} style={{ width: "320px" }} onClick={e => e.stopPropagation()}>
-            <img src={selectedUser.avatar ? `${BASE_URL}${selectedUser.avatar}` : "https://via.placeholder.com/150"} className="rounded-circle mb-3 border border-4 border-primary shadow" style={{ width: "120px", height: "120px", objectFit: "cover" }} />
-            <h4 className="fw-bold mb-1">{selectedUser.name}</h4>
+            <img src={selectedUser?.avatar ? `${BASE_URL}${selectedUser.avatar}` : "https://via.placeholder.com/150"} className="rounded-circle mb-3 border border-4 border-primary shadow" style={{ width: "120px", height: "120px", objectFit: "cover" }} alt="profile" />
+            <h4 className="fw-bold">{selectedUser?.name}</h4>
             <div className={`p-3 rounded-3 text-start mt-3 ${darkMode ? "bg-secondary bg-opacity-25" : "bg-light"}`}>
               <small className="fw-bold text-primary text-uppercase" style={{fontSize: '10px'}}>About</small>
-              <div className="small mt-1">{selectedUser.bio || "Available"}</div>
+              <div className="small mt-1">{selectedUser?.bio || "Hey there! I am using this chat."}</div>
             </div>
             <button className="btn btn-primary w-100 rounded-pill mt-4 fw-bold" onClick={() => setShowProfileModal(false)}>Close</button>
           </div>
@@ -549,12 +593,12 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       {/* HEADER */}
       <div className={`p-3 border-bottom d-flex align-items-center justify-content-between ${darkMode ? "bg-dark text-white border-secondary" : "bg-light"}`}>
         <div className="d-flex align-items-center" style={{ cursor: "pointer" }} onClick={() => setShowProfileModal(true)}>
-          <div className="bg-primary rounded-circle me-3 overflow-hidden shadow-sm d-flex align-items-center justify-content-center text-white fw-bold" style={{ width: "45px", height: "45px" }}>
-            {selectedUser.avatar ? <img src={`${BASE_URL}${selectedUser.avatar}`} className="w-100 h-100 object-fit-cover" /> : selectedUser.name.charAt(0)}
+          <div className="bg-primary rounded-circle me-3 d-flex align-items-center justify-content-center text-white fw-bold overflow-hidden" style={{ width: "45px", height: "45px" }}>
+            {selectedUser?.avatar ? <img src={`${BASE_URL}${selectedUser.avatar}`} className="w-100 h-100 object-fit-cover" alt="avatar" /> : selectedUser?.name?.charAt(0).toUpperCase()}
           </div>
           <div>
-            <div className="fw-bold">{selectedUser.name}</div>
-            <small className={userStatus === "online" ? "text-success fw-bold" : "text-muted"}>
+            <div className="fw-bold">{selectedUser?.name}</div>
+            <small className={isTyping ? "text-success fw-bold" : "text-muted"}>
               {isTyping ? "typing..." : (userStatus === "online" ? "Online" : formatLastSeen(userStatus))}
             </small>
           </div>
@@ -571,25 +615,18 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
           <div key={msg._id} className={`d-flex mb-2 ${msg.sender === user?._id ? "justify-content-end" : "justify-content-start"}`}>
             <div className={`position-relative p-2 px-3 rounded-4 shadow-sm ${msg.sender === user?._id ? "text-white" : "bg-white text-dark"}`} style={{ maxWidth: '75%', backgroundColor: msg.sender === user?._id ? "#075E54" : "#fff" }}>
               
-              {/* RESTORED DELETE DROPDOWN */}
               {msg.sender === user?._id && (
-                <div className="dropdown position-absolute" style={{ top: "2px", right: "5px" }}>
-                  <button className="btn btn-link btn-sm text-white opacity-50 p-0 border-0 shadow-none" data-bs-toggle="dropdown">
-                    <i className="bi bi-chevron-down" style={{ fontSize: "10px" }}></i>
-                  </button>
-                  <ul className="dropdown-menu dropdown-menu-end shadow border-0 py-1" style={{ fontSize: "12px" }}>
-                    <li><button className="dropdown-item text-danger" onClick={() => deleteMessage(msg._id)}><i className="bi bi-trash me-2"></i>Delete</button></li>
-                  </ul>
-                </div>
+                <button className="btn btn-link btn-sm text-white opacity-50 p-0 float-end ms-2" onClick={() => deleteMessage(msg._id)}>
+                  <i className="bi bi-trash" style={{fontSize: '11px'}}></i>
+                </button>
               )}
 
-              {/* RESTORED FILE RENDERING */}
               {msg.fileUrl && (
                 <div className="my-1">
                    {msg.fileType === "image" ? (
-                     <img src={`${BASE_URL}${msg.fileUrl}`} style={{maxWidth: '100%', borderRadius: '8px'}} className="img-fluid" onClick={() => window.open(`${BASE_URL}${msg.fileUrl}`, '_blank')} />
+                     <img src={`${BASE_URL}${msg.fileUrl}`} style={{maxWidth: '100%', borderRadius: '8px'}} className="img-fluid" alt="sent" />
                    ) : (
-                     <audio controls className="w-100" style={{ height: "30px" }}><source src={`${BASE_URL}${msg.fileUrl}`} type="audio/webm" /></audio>
+                     <audio controls className="w-100" style={{ height: "30px" }}><source src={`${BASE_URL}${msg.fileUrl}`} /></audio>
                    )}
                 </div>
               )}
@@ -608,15 +645,16 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       {/* INPUT AREA */}
       <div className={`p-3 border-top ${darkMode ? "bg-dark border-secondary" : "bg-white"}`}>
         <form onSubmit={handleSend} className="d-flex align-items-center gap-2">
-          <button type="button" className={`btn rounded-circle ${recording ? "btn-danger shadow" : "btn-light border"}`} onClick={toggleRecording}>
+          {/* VOICE */}
+          <button type="button" className={`btn rounded-circle ${recording ? "btn-danger" : "btn-light border"}`} onClick={toggleRecording}>
             <i className={`bi ${recording ? "bi-stop-fill" : "bi-mic-fill"}`}></i>
           </button>
           
-          {/* FILE ATTACHMENT */}
+          {/* FILES */}
           <button type="button" className="btn btn-light border rounded-circle" onClick={() => fileInputRef.current?.click()}><i className="bi bi-paperclip"></i></button>
           <input type="file" ref={fileInputRef} className="d-none" onChange={handleFileChange} />
 
-          {/* EMOJI PICKER RESTORED */}
+          {/* EMOJI */}
           <button type="button" className="btn btn-light border rounded-circle" onClick={() => setShowEmojiPicker(!showEmojiPicker)}><i className="bi bi-emoji-smile"></i></button>
           {showEmojiPicker && (
             <div className="position-absolute" style={{ bottom: "85px", left: "15px", zIndex: 1000 }}>
@@ -624,8 +662,13 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
             </div>
           )}
 
-          <input type="text" className="form-control rounded-pill px-3 shadow-none border" placeholder="Type a message..." value={text} onChange={(e) => { setText(e.target.value); /* logic for typing emit */ }} />
-          <button type="submit" className="btn btn-primary rounded-circle shadow-sm" style={{ width: "42px", height: "42px" }}><i className="bi bi-send-fill"></i></button>
+          {/* TEXT */}
+          <input type="text" className="form-control rounded-pill px-3 shadow-none border" placeholder="Type a message..." value={text} onChange={handleTyping} />
+          
+          {/* SEND */}
+          <button type="submit" className="btn btn-primary rounded-circle shadow-sm" style={{ width: "42px", height: "42px" }}>
+            <i className="bi bi-send-fill"></i>
+          </button>
         </form>
       </div>
     </div>
