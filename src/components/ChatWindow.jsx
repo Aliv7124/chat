@@ -375,8 +375,6 @@ export default ChatWindow;
 */
 
 
-
-
 import React, { useEffect, useState, useRef } from "react";
 import EmojiPicker from "emoji-picker-react";
 import API from "../api";
@@ -389,7 +387,6 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   const [isTyping, setIsTyping] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [userStatus, setUserStatus] = useState("offline");
-  
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [recording, setRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
@@ -398,7 +395,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   const fileInputRef = useRef(null);
   const BASE_URL = "https://chat-b-7y5f.onrender.com";
 
-  // --- 1. Tick Logic ---
+  // --- 1. Tick Logic (High Contrast) ---
   const renderTicks = (status) => {
     const tickStyle = { 
       fontSize: "16px", 
@@ -407,11 +404,14 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     };
 
     if (status === "seen") {
+      // High-contrast cyan for blue ticks
       return <i className="bi bi-check-all" style={{ ...tickStyle, color: "#00FFF0" }}></i>;
     }
     if (status === "delivered") {
+      // Muted white for delivered
       return <i className="bi bi-check-all" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.5)" }}></i>;
     }
+    // Single tick for sent
     return <i className="bi bi-check" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.5)" }}></i>;
   };
 
@@ -435,9 +435,9 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     }
   }, [selectedUser]);
 
-  // --- 2. Mark as Seen Trigger (Fixed) ---
+  // --- 2. Mark as Seen Trigger (Server Confirmation Only) ---
   useEffect(() => {
-    // Only emit seen if the other user is actually ONLINE
+    // Only proceed if the other user is online and we have unread messages from them
     if (!socket || !selectedUser?._id || messages.length === 0 || userStatus !== "online") return;
 
     const unreadIds = messages
@@ -450,8 +450,8 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
         senderId: selectedUser._id, 
         userId: user._id 
       });
-      // Logic: We don't update state here. We wait for the socket "messages-seen-update" 
-      // to ensure the server and database actually registered the change.
+      // NOTE: Local setMessages() removed from here. 
+      // We wait for the "messages-seen-update" event in Section 3 to turn ticks blue.
     }
   }, [messages.length, selectedUser?._id, socket, user._id, userStatus]);
 
@@ -479,8 +479,8 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       );
     });
 
+    // This is the ONLY place where messages status turns to "seen"
     socket.on("messages-seen-update", ({ messageIds }) => {
-      // Update ticks to blue when the server confirms seen status
       setMessages((prev) =>
         prev.map((m) => (messageIds.includes(m._id) ? { ...m, status: "seen" } : m))
       );
@@ -676,7 +676,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       <div className={`p-3 border-bottom d-flex align-items-center justify-content-between ${darkMode ? "bg-dark text-white border-secondary" : "bg-light"}`}>
         <div className="d-flex align-items-center" style={{ cursor: "pointer" }} onClick={() => setShowProfileModal(true)}>
           <div className="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-3 fw-bold overflow-hidden" style={{ width: "42px", height: "42px" }}>
-            {selectedUser?.avatar ? (
+             {selectedUser?.avatar ? (
               <img src={`${BASE_URL}${selectedUser.avatar}`} className="w-100 h-100 object-fit-cover" alt="avatar" />
             ) : selectedUser?.name?.charAt(0).toUpperCase() || "U"}
           </div>
