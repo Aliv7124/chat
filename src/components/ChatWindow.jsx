@@ -452,6 +452,19 @@ useEffect(() => {
       senderId: selectedUser._id, 
       userId: user._id 
     });
+     // SINGLE Delivery update (Real-time)
+    socket.on("message-status-updated", ({ messageId, status }) => {
+      setMessages((prev) => prev.map((m) => (m._id === messageId ? { ...m, status } : m)));
+    });
+
+    // BULK Delivery update (When peer logs in)
+    socket.on("messages-delivered-bulk", ({ messageIds, status }) => {
+      setMessages((prev) =>
+        prev.map((m) => (messageIds.includes(m._id) ? { ...m, status } : m))
+      );
+    });
+
+   
 
     // Update local state to reflect seen status immediately
     setMessages((prev) =>
