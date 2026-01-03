@@ -390,9 +390,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [userStatus, setUserStatus] = useState("offline");
   
-  // --- Profile Modal State ---
   const [showProfileModal, setShowProfileModal] = useState(false);
-
   const [recording, setRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const audioChunksRef = useRef([]);
@@ -400,7 +398,7 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   const fileInputRef = useRef(null);
   const BASE_URL = "https://chat-b-7y5f.onrender.com";
 
-  // --- 1. Tick Logic (High Contrast) ---
+  // --- 1. Tick Logic ---
   const renderTicks = (status) => {
     const tickStyle = { 
       fontSize: "16px", 
@@ -408,13 +406,13 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
       marginLeft: "4px" 
     };
 
-    if (status === "delivered") {
-      return <i className="bi bi-check-all" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.7)" }}></i>;
-    }
     if (status === "seen") {
       return <i className="bi bi-check-all" style={{ ...tickStyle, color: "#00FFF0" }}></i>;
     }
-    return <i className="bi bi-check" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.7)" }}></i>;
+    if (status === "delivered") {
+      return <i className="bi bi-check-all" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.5)" }}></i>;
+    }
+    return <i className="bi bi-check" style={{ ...tickStyle, color: "rgba(255, 255, 255, 0.5)" }}></i>;
   };
 
   const formatLastSeen = (ts) => {
@@ -437,42 +435,25 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     }
   }, [selectedUser]);
 
- // --- 2. Mark as Seen Trigger (Fixed: Only blue tick if user is online) ---
-useEffect(() => {
-  // GUARD: Only proceed if socket exists, messages exist, and the other user is ONLINE
-  if (!socket || !selectedUser?._id || messages.length === 0 || userStatus !== "online") return;
+  // --- 2. Mark as Seen Trigger (Fixed) ---
+  useEffect(() => {
+    // Only emit seen if the other user is actually ONLINE
+    if (!socket || !selectedUser?._id || messages.length === 0 || userStatus !== "online") return;
 
-  const unreadIds = messages
-    .filter((m) => m.sender === selectedUser._id && m.status !== "seen")
-    .map((m) => m._id);
+    const unreadIds = messages
+      .filter((m) => m.sender === selectedUser._id && m.status !== "seen")
+      .map((m) => m._id);
 
-  if (unreadIds.length > 0) {
-    socket.emit("mark-as-seen", { 
-      messageIds: unreadIds, 
-      senderId: selectedUser._id, 
-      userId: user._id 
-    });
-     // SINGLE Delivery update (Real-time)
-    socket.on("message-status-updated", ({ messageId, status }) => {
-      setMessages((prev) => prev.map((m) => (m._id === messageId ? { ...m, status } : m)));
-    });
-
-    // BULK Delivery update (When peer logs in)
-    socket.on("messages-delivered-bulk", ({ messageIds, status }) => {
-      setMessages((prev) =>
-        prev.map((m) => (messageIds.includes(m._id) ? { ...m, status } : m))
-      );
-    });
-
-   
-
-    // Update local state to reflect seen status immediately
-    setMessages((prev) =>
-      prev.map((m) => (unreadIds.includes(m._id) ? { ...m, status: "seen" } : m))
-    );
-  }
-  // Added userStatus to the dependency array so it re-checks when they come online
-}, [messages.length, selectedUser?._id, socket, user._id, userStatus]);
+    if (unreadIds.length > 0) {
+      socket.emit("mark-as-seen", { 
+        messageIds: unreadIds, 
+        senderId: selectedUser._id, 
+        userId: user._id 
+      });
+      // Logic: We don't update state here. We wait for the socket "messages-seen-update" 
+      // to ensure the server and database actually registered the change.
+    }
+  }, [messages.length, selectedUser?._id, socket, user._id, userStatus]);
 
   // --- 3. Socket Event Listeners ---
   useEffect(() => {
@@ -498,12 +479,11 @@ useEffect(() => {
       );
     });
 
-    socket.on("messages-seen-update", ({ messageIds, receiverId }) => {
-      if (receiverId === selectedUser?._id) {
-        setMessages((prev) =>
-          prev.map((m) => (messageIds.includes(m._id) ? { ...m, status: "seen" } : m))
-        );
-      }
+    socket.on("messages-seen-update", ({ messageIds }) => {
+      // Update ticks to blue when the server confirms seen status
+      setMessages((prev) =>
+        prev.map((m) => (messageIds.includes(m._id) ? { ...m, status: "seen" } : m))
+      );
     });
 
     socket.on("user-status", ({ userId, status, lastSeen }) => {
@@ -658,7 +638,7 @@ useEffect(() => {
   return (
     <div className="d-flex flex-column h-100 position-relative bg-white shadow-sm overflow-hidden">
       
-      {/* --- PROFILE MODAL --- */}
+      {/* PROFILE MODAL */}
       {showProfileModal && (
         <div 
           className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" 
