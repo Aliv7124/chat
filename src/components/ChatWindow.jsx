@@ -437,26 +437,29 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
     }
   }, [selectedUser]);
 
-  // --- 2. Mark as Seen Trigger (Critical for Blue Ticks) ---
-  useEffect(() => {
-    if (!socket || !selectedUser?._id || messages.length === 0) return;
+ // --- 2. Mark as Seen Trigger (Fixed: Only blue tick if user is online) ---
+useEffect(() => {
+  // GUARD: Only proceed if socket exists, messages exist, and the other user is ONLINE
+  if (!socket || !selectedUser?._id || messages.length === 0 || userStatus !== "online") return;
 
-    const unreadIds = messages
-      .filter((m) => m.sender === selectedUser._id && m.status !== "seen")
-      .map((m) => m._id);
+  const unreadIds = messages
+    .filter((m) => m.sender === selectedUser._id && m.status !== "seen")
+    .map((m) => m._id);
 
-    if (unreadIds.length > 0) {
-      socket.emit("mark-as-seen", { 
-        messageIds: unreadIds, 
-        senderId: selectedUser._id, 
-        userId: user._id 
-      });
+  if (unreadIds.length > 0) {
+    socket.emit("mark-as-seen", { 
+      messageIds: unreadIds, 
+      senderId: selectedUser._id, 
+      userId: user._id 
+    });
 
-      setMessages((prev) =>
-        prev.map((m) => (unreadIds.includes(m._id) ? { ...m, status: "seen" } : m))
-      );
-    }
-  }, [messages.length, selectedUser?._id, socket, user._id]);
+    // Update local state to reflect seen status immediately
+    setMessages((prev) =>
+      prev.map((m) => (unreadIds.includes(m._id) ? { ...m, status: "seen" } : m))
+    );
+  }
+  // Added userStatus to the dependency array so it re-checks when they come online
+}, [messages.length, selectedUser?._id, socket, user._id, userStatus]);
 
   // --- 3. Socket Event Listeners ---
   useEffect(() => {
