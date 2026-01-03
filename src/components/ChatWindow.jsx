@@ -400,6 +400,11 @@ const ChatWindow = ({ user, selectedUser, setSelectedUser, socket, startCall }) 
   
   const BASE_URL = "https://chat-b-7y5f.onrender.com";
 
+  const getRoomId = () => {
+    if (!user?._id || !selectedUser?._id) return null;
+    return [user._id, selectedUser._id].sort().join("_");
+  };
+
    // --- 1. Tick Logic (High Contrast) ---
   const renderTicks = (status) => {
     const tickStyle = { 
